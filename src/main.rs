@@ -2,7 +2,6 @@ mod api;
 mod auth;
 mod domain;
 mod config;
-mod models;
 mod worker;
 
 use anyhow::Result;

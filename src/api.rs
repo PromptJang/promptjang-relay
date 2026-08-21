@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    models::{ApiKeyView, AttemptView, EndpointView, EventView},
+    domain::models::{ApiKeyView, AttemptView, EndpointView, EventView},
 };
 
 const MAX_ENDPOINTS: i64 = 10;
