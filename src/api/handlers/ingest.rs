@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::api::error::{ApiResult, AppError};
-use crate::domain::validation::{ensure_payload_size, extract_header, idempotency_key};
 use crate::domain::secrets;
+use crate::domain::validation::{ensure_payload_size, extract_header, idempotency_key};
 use crate::store;
 use crate::store::events::IngestOutcome;
 
@@ -22,12 +22,11 @@ pub async fn ingest(
         .await
         .map_err(|_| AppError::unauthorized("invalid API key"))?;
     ensure_payload_size(body.len())?;
-    let payload: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|_| {
-            AppError::from(crate::domain::DomainError::bad_request(
-                "payload must be valid JSON",
-            ))
-        })?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
+        AppError::from(crate::domain::DomainError::bad_request(
+            "payload must be valid JSON",
+        ))
+    })?;
     let payload_hash = secrets::hash_bytes(&body);
     let idempotency = idempotency_key(&headers)?;
     let key_hash = idempotency.as_deref().map(secrets::hash_secret);
@@ -44,9 +43,10 @@ pub async fn ingest(
     )
     .await?
     {
-        IngestOutcome::Created { id } => {
-            Ok((StatusCode::ACCEPTED, Json(json!({"id":id,"status":"QUEUED"}))))
-        }
+        IngestOutcome::Created { id } => Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"id":id,"status":"QUEUED"})),
+        )),
         IngestOutcome::IdempotentReplay { id, status } => Ok((
             StatusCode::ACCEPTED,
             Json(json!({"id":id,"status":status,"idempotent_replay":true})),

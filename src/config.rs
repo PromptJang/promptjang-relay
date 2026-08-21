@@ -81,9 +81,6 @@ mod tests {
         // Assert
         assert_eq!(config.bind, "127.0.0.1:9000");
         assert_eq!(config.admin_email.as_deref(), Some("owner@example.com"));
-        assert_eq!(
-            config.admin_password.as_deref(),
-            Some("at-least-twelve")
-        );
+        assert_eq!(config.admin_password.as_deref(), Some("at-least-twelve"));
     }
 }

@@ -25,7 +25,8 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     if password.len() < 12 {
         bail!("PJ_ADMIN_PASSWORD must contain at least 12 characters");
     }
-    let password_hash = hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let password_hash =
+        hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     sqlx::query("INSERT INTO owners (id, email, password_hash) VALUES ($1, $2, $3)")
         .bind(Uuid::new_v4())
         .bind(email.to_lowercase())
@@ -42,10 +43,9 @@ pub async fn verify_login(pool: &PgPool, email: &str, password: &str) -> Result<
             .bind(email.to_lowercase())
             .fetch_optional(pool)
             .await?;
-    Ok(owner.filter(|(_, encoded)| {
-        crate::domain::secrets::verify_password(password, encoded)
-    })
-    .map(|(id, _)| id))
+    Ok(owner
+        .filter(|(_, encoded)| crate::domain::secrets::verify_password(password, encoded))
+        .map(|(id, _)| id))
 }
 
 pub async fn issue_session(pool: &PgPool, owner_id: Uuid) -> Result<String> {

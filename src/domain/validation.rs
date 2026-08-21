@@ -38,7 +38,10 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 }
 
 pub fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, DomainError> {
-    match headers.get("Idempotency-Key").and_then(|value| value.to_str().ok()) {
+    match headers
+        .get("Idempotency-Key")
+        .and_then(|value| value.to_str().ok())
+    {
         None => Ok(None),
         Some(value) if value.is_empty() || value.len() > 255 => Err(DomainError::bad_request(
             "Idempotency-Key must contain 1 to 255 characters",
@@ -49,17 +52,14 @@ pub fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, DomainErro
 
 pub fn ensure_payload_size(size: usize) -> Result<(), DomainError> {
     if size > MAX_PAYLOAD_BYTES {
-        Err(DomainError::payload_too_large(
-            "payload exceeds 256 KB",
-        ))
+        Err(DomainError::payload_too_large("payload exceeds 256 KB"))
     } else {
         Ok(())
     }
 }
 
 pub async fn validate_public_https(raw: &str) -> Result<(), DomainError> {
-    let url = Url::parse(raw)
-        .map_err(|_| DomainError::bad_request("invalid endpoint URL"))?;
+    let url = Url::parse(raw).map_err(|_| DomainError::bad_request("invalid endpoint URL"))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return Err(DomainError::bad_request(
             "endpoint must be a public HTTPS URL without credentials",
@@ -151,10 +151,7 @@ mod tests {
     fn bearer_token_strips_the_scheme() {
         // Arrange
         let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_static("Bearer pj_oss_abc"),
-        );
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer pj_oss_abc"));
 
         // Act
         let token = bearer_token(&headers);
@@ -282,7 +279,11 @@ mod tests {
         let unique_local = "fd00::1".parse::<IpAddr>().expect("valid IPv6");
 
         // Act
-        let results = [is_public_ip(public), is_public_ip(loopback), is_public_ip(unique_local)];
+        let results = [
+            is_public_ip(public),
+            is_public_ip(loopback),
+            is_public_ip(unique_local),
+        ];
 
         // Assert
         assert!(results[0], "public IPv6 must be public");

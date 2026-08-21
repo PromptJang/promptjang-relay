@@ -48,7 +48,11 @@ mod tests {
         // Assert
         assert!(secret.starts_with(prefix));
         assert_eq!(secret.len(), prefix.len() + 64);
-        assert!(secret[prefix.len()..].chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            secret[prefix.len()..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
+        );
     }
 
     #[test]

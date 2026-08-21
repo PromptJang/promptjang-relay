@@ -22,7 +22,10 @@ impl IntoResponse for AppError {
 impl From<anyhow::Error> for AppError {
     fn from(error: anyhow::Error) -> Self {
         tracing::error!(%error, "request failed");
-        Self(StatusCode::INTERNAL_SERVER_ERROR, "internal server error".into())
+        Self(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal server error".into(),
+        )
     }
 }
 
@@ -61,7 +64,10 @@ mod tests {
                 DomainError::too_many_requests("x"),
                 StatusCode::TOO_MANY_REQUESTS,
             ),
-            (DomainError::internal("x"), StatusCode::INTERNAL_SERVER_ERROR),
+            (
+                DomainError::internal("x"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
         ];
 
         for (error, expected) in cases {

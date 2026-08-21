@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -27,22 +27,6 @@ struct Destination {
     enabled: bool,
 }
 
-pub async fn run(pool: PgPool, client: Client) {
-    loop {
-        if let Err(error) = recover_stuck(&pool).await {
-            tracing::error!(%error, "stuck delivery recovery failed");
-        }
-        match process_one(&pool, &client).await {
-            Ok(true) => continue,
-            Ok(false) => tokio::time::sleep(Duration::from_millis(500)).await,
-            Err(error) => {
-                tracing::error!(%error, "delivery worker iteration failed");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-        }
-    }
-}
-
 async fn claim(pool: &PgPool) -> Result<Option<DeliveryJob>> {
     let mut tx = pool.begin().await?;
     let job = sqlx::query_as::<_, DeliveryJob>(
@@ -64,7 +48,7 @@ async fn claim(pool: &PgPool) -> Result<Option<DeliveryJob>> {
     Ok(job)
 }
 
-async fn process_one(pool: &PgPool, client: &Client) -> Result<bool> {
+pub(crate) async fn process_one(pool: &PgPool, client: &Client) -> Result<bool> {
     let Some(job) = claim(pool).await? else {
         return Ok(false);
     };
@@ -164,7 +148,7 @@ async fn fail(
     Ok(())
 }
 
-async fn recover_stuck(pool: &PgPool) -> Result<()> {
+pub(crate) async fn recover_stuck(pool: &PgPool) -> Result<()> {
     sqlx::query("UPDATE events SET status='RETRYING', next_attempt_at=now(), last_error='recovered after interrupted delivery', updated_at=now() WHERE status='PROCESSING' AND updated_at < now() - interval '5 minutes'")
         .execute(pool)
         .await?;

@@ -21,7 +21,10 @@ pub async fn list(pool: &PgPool, limit: i64) -> Result<Vec<EventView>, DomainErr
     .map_err(DomainError::from)
 }
 
-pub async fn get(pool: &PgPool, id: Uuid) -> Result<Option<(EventView, Vec<AttemptView>)>, DomainError> {
+pub async fn get(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<Option<(EventView, Vec<AttemptView>)>, DomainError> {
     let event = sqlx::query_as::<_, EventView>(
         "SELECT id,endpoint_id,status,event_type,correlation_id,payload,retry_count,max_retries,is_replay,source_event_id,next_attempt_at,last_error,created_at,updated_at FROM events WHERE id=$1",
     )
@@ -94,7 +97,9 @@ pub async fn ingest(
             .await
             .map_err(DomainError::from)?;
     if minute_count >= PER_MINUTE_EVENTS {
-        return Err(DomainError::too_many_requests("accepted-event limit reached"));
+        return Err(DomainError::too_many_requests(
+            "accepted-event limit reached",
+        ));
     }
 
     let mut tx = pool.begin().await.map_err(DomainError::from)?;

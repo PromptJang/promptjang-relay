@@ -110,7 +110,17 @@ mod tests {
 
         // Assert
         assert!(truncated.ends_with("[truncated]"));
-        assert!(truncated.chars().all(|character| character == 'あ' || character == '[' || character == 't' || character == 'r' || character == 'u' || character == 'n' || character == 'c' || character == 'a' || character == 'e' || character == 'd' || character == ']'));
+        assert!(truncated.chars().all(|character| character == 'あ'
+            || character == '['
+            || character == 't'
+            || character == 'r'
+            || character == 'u'
+            || character == 'n'
+            || character == 'c'
+            || character == 'a'
+            || character == 'e'
+            || character == 'd'
+            || character == ']'));
     }
 
     #[test]
