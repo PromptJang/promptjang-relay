@@ -6,8 +6,9 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  id-token: write
 
 jobs:
   verify-and-publish:
@@ -58,12 +59,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/promptjang/promptjang-webhooks
+          images: ghcr.io/promptjang/promptjang-relay
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest
 
       - name: Build and publish container
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -73,3 +75,15 @@ jobs:
           sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign container manifest
+        run: cosign sign --yes ghcr.io/promptjang/promptjang-relay@${{ steps.build.outputs.digest }}
+
+      - name: Publish release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true

@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -21,8 +22,20 @@ pub async fn login(
         .await
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::unauthorized("invalid credentials"))?;
-    let token = store::auth::issue_session(&state.pool, owner_id)
+    let token = store::auth::issue_session(&state.pool, owner_id, state.config.session_ttl_seconds)
         .await
         .map_err(AppError::from)?;
-    Ok(Json(json!({"token":token,"expires_in":86400})))
+    Ok(Json(
+        json!({"token":token,"expires_in":state.config.session_ttl_seconds}),
+    ))
+}
+
+pub async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<serde_json::Value>> {
+    store::auth::revoke_session(&headers, &state.pool)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(json!({"revoked":true})))
 }

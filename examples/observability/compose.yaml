@@ -1,0 +1,39 @@
+services:
+  log-volume-init:
+    image: alpine:3.22
+    command: ["chown", "-R", "10001:10001", "/var/log/otel"]
+    volumes:
+      - relay-otel-logs:/var/log/otel
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - relay-otel-logs:/var/log/otel
+    ports:
+      - "4318:4318"
+      - "8889:8889"
+    depends_on:
+      jaeger:
+        condition: service_started
+      log-volume-init:
+        condition: service_completed_successfully
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.72.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yaml"]
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+    ports:
+      - "9090:9090"
+
+volumes:
+  relay-otel-logs:

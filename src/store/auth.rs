@@ -1,11 +1,26 @@
 use anyhow::{Context, Result, bail};
+use axum::http::HeaderMap;
 use sqlx::PgPool;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 use crate::config::Config;
 use crate::domain::secrets::{hash_password, hash_secret};
 use crate::domain::validation::bearer_token;
-use axum::http::HeaderMap;
+
+static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
+
+fn dummy_password_hash() -> Result<&'static str> {
+    if let Some(value) = DUMMY_PASSWORD_HASH.get() {
+        return Ok(value);
+    }
+    let value = hash_password("relay-constant-cost-dummy-password")
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let _ = DUMMY_PASSWORD_HASH.set(value);
+    Ok(DUMMY_PASSWORD_HASH
+        .get()
+        .expect("dummy password hash was initialized"))
+}
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
@@ -27,37 +42,64 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     }
     let password_hash =
         hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    sqlx::query("INSERT INTO owners (id, email, password_hash) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO owners (id,email,password_hash) VALUES ($1,$2,$3)")
         .bind(Uuid::new_v4())
         .bind(email.to_lowercase())
         .bind(password_hash)
         .execute(pool)
         .await?;
-    tracing::info!(email, "created the PromptJang Webhooks OSS owner");
+    tracing::info!(email, "created the PromptJang Relay owner");
     Ok(())
 }
 
 pub async fn verify_login(pool: &PgPool, email: &str, password: &str) -> Result<Option<Uuid>> {
+    let email_hash = hash_secret(&email.to_lowercase());
+    let blocked = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(blocked_until > now(),false) FROM login_attempts WHERE email_hash=$1",
+    )
+    .bind(&email_hash)
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(false);
+    if blocked {
+        return Ok(None);
+    }
     let owner =
-        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM owners WHERE email=$1")
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id,password_hash FROM owners WHERE email=$1")
             .bind(email.to_lowercase())
             .fetch_optional(pool)
             .await?;
-    Ok(owner
-        .filter(|(_, encoded)| crate::domain::secrets::verify_password(password, encoded))
-        .map(|(id, _)| id))
+    let fallback = dummy_password_hash()?;
+    let verified = owner.as_ref().map_or_else(
+        || crate::domain::secrets::verify_password(password, fallback),
+        |(_, encoded)| crate::domain::secrets::verify_password(password, encoded),
+    );
+    if verified {
+        sqlx::query("DELETE FROM login_attempts WHERE email_hash=$1")
+            .bind(email_hash)
+            .execute(pool)
+            .await?;
+        return Ok(owner.map(|(id, _)| id));
+    }
+    sqlx::query("INSERT INTO login_attempts(email_hash,failed_count,window_started_at,blocked_until) VALUES($1,1,now(),NULL) ON CONFLICT(email_hash) DO UPDATE SET failed_count=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN 1 ELSE login_attempts.failed_count+1 END, window_started_at=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END, blocked_until=CASE WHEN login_attempts.failed_count+1>=5 THEN now()+interval '15 minutes' ELSE login_attempts.blocked_until END")
+        .bind(email_hash).execute(pool).await?;
+    Ok(None)
 }
 
-pub async fn issue_session(pool: &PgPool, owner_id: Uuid) -> Result<String> {
+pub async fn issue_session(pool: &PgPool, owner_id: Uuid, ttl_seconds: i64) -> Result<String> {
     let token = crate::domain::secrets::new_secret("pj_session_");
-    sqlx::query("INSERT INTO sessions (id,owner_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)")
-        .bind(Uuid::new_v4())
-        .bind(owner_id)
-        .bind(hash_secret(&token))
-        .bind(chrono::Utc::now() + chrono::Duration::hours(24))
+    sqlx::query("INSERT INTO sessions(id,owner_id,token_hash,expires_at) VALUES($1,$2,$3,now()+make_interval(secs=>$4))")
+        .bind(Uuid::new_v4()).bind(owner_id).bind(hash_secret(&token)).bind(ttl_seconds as f64).execute(pool).await?;
+    Ok(token)
+}
+
+pub async fn revoke_session(headers: &HeaderMap, pool: &PgPool) -> Result<()> {
+    let raw = bearer_token(headers).context("session token required")?;
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(hash_secret(raw))
         .execute(pool)
         .await?;
-    Ok(token)
+    Ok(())
 }
 
 pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
@@ -65,29 +107,41 @@ pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid>
     if !raw.starts_with("pj_session_") {
         bail!("session token required");
     }
-    let owner_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT owner_id FROM sessions WHERE token_hash = $1 AND expires_at > now()",
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT owner_id FROM sessions WHERE token_hash=$1 AND expires_at>now()",
     )
     .bind(hash_secret(raw))
     .fetch_optional(pool)
     .await?
-    .context("invalid or expired session")?;
-    Ok(owner_id)
+    .context("invalid or expired session")
 }
 
-pub async fn require_api_key(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
+pub async fn require_api_key(
+    headers: &HeaderMap,
+    pool: &PgPool,
+    destination_id: Uuid,
+) -> Result<Uuid> {
     let raw = bearer_token(headers).context("API key required")?;
-    if !raw.starts_with("pj_oss_") {
+    if !(raw.starts_with("pj_relay_") || raw.starts_with("pj_oss_")) {
         bail!("API key required");
     }
-    let id = sqlx::query_scalar::<_, Uuid>("SELECT id FROM api_keys WHERE secret_hash = $1")
-        .bind(hash_secret(raw))
-        .fetch_optional(pool)
-        .await?
-        .context("invalid API key")?;
-    sqlx::query("UPDATE api_keys SET last_used_at = now() WHERE id = $1")
-        .bind(id)
+    let row = sqlx::query_as::<_, (Uuid, bool)>(
+        "SELECT id,unrestricted FROM api_keys WHERE secret_hash=$1",
+    )
+    .bind(hash_secret(raw))
+    .fetch_optional(pool)
+    .await?
+    .context("invalid API key")?;
+    if !row.1 {
+        let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM api_key_destinations WHERE api_key_id=$1 AND destination_id=$2)")
+            .bind(row.0).bind(destination_id).fetch_one(pool).await?;
+        if !allowed {
+            bail!("API key is not authorized for this destination");
+        }
+    }
+    sqlx::query("UPDATE api_keys SET last_used_at=now() WHERE id=$1")
+        .bind(row.0)
         .execute(pool)
         .await?;
-    Ok(id)
+    Ok(row.0)
 }

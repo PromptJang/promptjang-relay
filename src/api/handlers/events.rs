@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
+use chrono::{DateTime, Utc};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -22,8 +23,34 @@ pub async fn list_events(
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(100)
         .clamp(1, 100);
-    let events = store::events::list(&state.pool, limit).await?;
-    Ok(Json(json!({"events":events})))
+    let cursor = query
+        .get("cursor")
+        .and_then(|value| value.parse::<DateTime<Utc>>().ok());
+    let destination_id = query
+        .get("destination_id")
+        .or_else(|| query.get("endpoint_id"))
+        .and_then(|value| value.parse::<Uuid>().ok());
+    let status = query
+        .get("status")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let event_type = query
+        .get("event_type")
+        .cloned()
+        .filter(|value| !value.is_empty());
+    let events = store::events::list(
+        &state.pool,
+        store::events::EventFilters {
+            limit,
+            cursor,
+            destination_id,
+            status,
+            event_type,
+        },
+    )
+    .await?;
+    let next_cursor = events.last().map(|event| event.created_at.to_rfc3339());
+    Ok(Json(json!({"events":events,"next_cursor":next_cursor})))
 }
 
 pub async fn get_event(
@@ -38,6 +65,7 @@ pub async fn get_event(
     Ok(Json(json!({"event":event,"attempts":attempts})))
 }
 
+#[tracing::instrument(skip_all, fields(source_event_id=%id))]
 pub async fn replay_event(
     State(state): State<AppState>,
     headers: HeaderMap,

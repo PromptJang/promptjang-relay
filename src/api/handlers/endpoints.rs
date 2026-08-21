@@ -9,7 +9,7 @@ use crate::api::AppState;
 use crate::api::error::ApiResult;
 use crate::api::handlers::session;
 use crate::domain::secrets;
-use crate::domain::validation::{validate_name, validate_public_https};
+use crate::domain::validation::{validate_destination_url, validate_name};
 use crate::store;
 
 #[derive(Deserialize)]
@@ -25,7 +25,9 @@ pub async fn list_endpoints(
 ) -> ApiResult<Json<serde_json::Value>> {
     session(&headers, &state.pool).await?;
     let endpoints = store::endpoints::list(&state.pool).await?;
-    Ok(Json(json!({"endpoints":endpoints})))
+    Ok(Json(
+        json!({"destinations":endpoints,"endpoints":endpoints}),
+    ))
 }
 
 pub async fn create_endpoint(
@@ -35,10 +37,11 @@ pub async fn create_endpoint(
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
-    validate_public_https(&input.url).await?;
+    validate_destination_url(&input.url, &state.config).await?;
     let signing_secret = secrets::new_secret("whsec_");
     let (id, secret) = store::endpoints::create(
         &state.pool,
+        &state.config.encryption_key,
         input.name,
         input.url,
         signing_secret,
@@ -56,9 +59,64 @@ pub async fn update_endpoint(
 ) -> ApiResult<Json<serde_json::Value>> {
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
-    validate_public_https(&input.url).await?;
+    validate_destination_url(&input.url, &state.config).await?;
     store::endpoints::update(&state.pool, id, input.name, input.url, input.enabled).await?;
     Ok(Json(json!({"updated":true})))
+}
+
+pub async fn rotate_secret(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    session(&headers, &state.pool).await?;
+    let secret =
+        store::endpoints::rotate_secret(&state.pool, &state.config.encryption_key, id).await?;
+    Ok(Json(json!({"secret":secret})))
+}
+
+pub async fn test_destination(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    session(&headers, &state.pool).await?;
+    let raw = br#"{"source":"promptjang-relay","type":"destination.test"}"#.to_vec();
+    let payload = serde_json::from_slice(&raw).map_err(|error| anyhow::anyhow!(error))?;
+    let outcome = store::events::ingest(
+        &state.pool,
+        id,
+        payload,
+        raw.clone(),
+        crate::domain::secrets::hash_bytes(&raw),
+        None,
+        Some("destination.test".into()),
+        None,
+        "application/json".into(),
+        None,
+        None,
+        state.config.rate_limit_per_minute,
+        state.config.retry_delays_seconds.len() as i32,
+    )
+    .await?;
+    let event_id = match outcome {
+        store::events::IngestOutcome::Created { id } => id,
+        store::events::IngestOutcome::IdempotentReplay { id, .. } => id,
+    };
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"id":event_id,"status":"QUEUED"})),
+    ))
+}
+
+pub async fn finish_rotation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    session(&headers, &state.pool).await?;
+    store::endpoints::finish_rotation(&state.pool, id).await?;
+    Ok(Json(json!({"finished":true})))
 }
 
 pub async fn delete_endpoint(

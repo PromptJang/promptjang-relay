@@ -1,4 +1,6 @@
 use crate::domain::DomainError;
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
@@ -15,6 +17,32 @@ pub fn hash_bytes(value: &[u8]) -> String {
 
 pub fn hash_secret(value: &str) -> String {
     hash_bytes(value.as_bytes())
+}
+
+pub fn encrypt_secret(key: &[u8; 32], value: &str) -> Result<Vec<u8>, DomainError> {
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|_| DomainError::internal("encryption key rejected"))?;
+    let mut nonce_bytes = [0_u8; 12];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), value.as_bytes())
+        .map_err(|_| DomainError::internal("secret encryption failed"))?;
+    let mut encoded = nonce_bytes.to_vec();
+    encoded.extend(ciphertext);
+    Ok(encoded)
+}
+
+pub fn decrypt_secret(key: &[u8; 32], encoded: &[u8]) -> Result<String, DomainError> {
+    if encoded.len() < 13 {
+        return Err(DomainError::internal("encrypted secret is invalid"));
+    }
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|_| DomainError::internal("encryption key rejected"))?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(&encoded[..12]), &encoded[12..])
+        .map_err(|_| DomainError::internal("secret decryption failed"))?;
+    String::from_utf8(plaintext)
+        .map_err(|_| DomainError::internal("decrypted secret is invalid UTF-8"))
 }
 
 pub fn hash_password(password: &str) -> Result<String, DomainError> {
@@ -121,5 +149,14 @@ mod tests {
         // Assert
         assert!(!wrong_password);
         assert!(!corrupt_hash);
+    }
+
+    #[test]
+    fn encrypted_secret_round_trip_and_random_nonce() {
+        let key = [7_u8; 32];
+        let first = encrypt_secret(&key, "whsec_example").expect("encrypt");
+        let second = encrypt_secret(&key, "whsec_example").expect("encrypt");
+        assert_ne!(first, second);
+        assert_eq!(decrypt_secret(&key, &first).as_deref(), Ok("whsec_example"));
     }
 }
