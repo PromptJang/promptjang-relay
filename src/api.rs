@@ -20,9 +20,7 @@ use uuid::Uuid;
 use crate::{
     auth,
     domain::models::{ApiKeyView, AttemptView, EndpointView, EventView},
-    domain::validation::{
-        MAX_ENDPOINTS, MAX_KEYS, MAX_PAYLOAD_BYTES, extract_header, validate_name,
-    },
+    domain::validation::{MAX_ENDPOINTS, MAX_KEYS, extract_header, validate_name},
 };
 
 
@@ -329,12 +327,7 @@ async fn ingest(
     auth::require_api_key(&headers, &state.pool)
         .await
         .map_err(|_| unauthorized("invalid API key"))?;
-    if body.len() > MAX_PAYLOAD_BYTES {
-        return Err(AppError(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "payload exceeds 256 KB".into(),
-        ));
-    }
+    crate::domain::validation::ensure_payload_size(body.len())?;
     let payload: Value = serde_json::from_slice(&body)
         .map_err(|_| AppError(StatusCode::BAD_REQUEST, "payload must be valid JSON".into()))?;
     let enabled = sqlx::query_scalar::<_, bool>("SELECT enabled FROM endpoints WHERE id=$1")
@@ -355,14 +348,8 @@ async fn ingest(
         ));
     }
     let payload_hash = hex::encode(Sha256::digest(&body));
-    let idempotency = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok());
-    if idempotency.is_some_and(|value| value.is_empty() || value.len() > 255) {
-        return Err(AppError(
-            StatusCode::BAD_REQUEST,
-            "Idempotency-Key must contain 1 to 255 characters".into(),
-        ));
-    }
-    let key_hash = idempotency.map(auth::hash_secret);
+    let idempotency = crate::domain::validation::idempotency_key(&headers)?;
+    let key_hash = idempotency.as_deref().map(auth::hash_secret);
     let mut tx = state.pool.begin().await.map_err(internal)?;
     if let Some(ref hash) = key_hash {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")

@@ -34,6 +34,26 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
 }
 
+pub fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, DomainError> {
+    match headers.get("Idempotency-Key").and_then(|value| value.to_str().ok()) {
+        None => Ok(None),
+        Some(value) if value.is_empty() || value.len() > 255 => Err(DomainError::bad_request(
+            "Idempotency-Key must contain 1 to 255 characters",
+        )),
+        Some(value) => Ok(Some(value.to_string())),
+    }
+}
+
+pub fn ensure_payload_size(size: usize) -> Result<(), DomainError> {
+    if size > MAX_PAYLOAD_BYTES {
+        Err(DomainError::payload_too_large(
+            "payload exceeds 256 KB",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +119,84 @@ mod tests {
 
         // Assert
         assert_eq!(token, None);
+    }
+
+    #[test]
+    fn idempotency_key_is_optional() {
+        // Arrange
+        let headers = HeaderMap::new();
+
+        // Act
+        let key = idempotency_key(&headers);
+
+        // Assert
+        assert_eq!(key, Ok(None));
+    }
+
+    #[test]
+    fn idempotency_key_accepts_valid_range() {
+        // Arrange
+        let mut headers = HeaderMap::new();
+        headers.insert("Idempotency-Key", HeaderValue::from_static("order-1042"));
+        let mut edge = HeaderMap::new();
+        edge.insert(
+            "Idempotency-Key",
+            HeaderValue::from_str(&"k".repeat(255)).expect("valid header value"),
+        );
+
+        // Act
+        let typical = idempotency_key(&headers);
+        let boundary = idempotency_key(&edge);
+
+        // Assert
+        assert_eq!(typical, Ok(Some("order-1042".into())));
+        assert!(matches!(boundary, Ok(Some(value)) if value.len() == 255));
+    }
+
+    #[test]
+    fn idempotency_key_rejects_empty_and_overlong() {
+        // Arrange
+        let mut empty = HeaderMap::new();
+        empty.insert("Idempotency-Key", HeaderValue::from_static(""));
+        let mut long = HeaderMap::new();
+        long.insert(
+            "Idempotency-Key",
+            HeaderValue::from_str(&"k".repeat(256)).expect("valid header value"),
+        );
+
+        // Act
+        let empty_result = idempotency_key(&empty);
+        let long_result = idempotency_key(&long);
+
+        // Assert
+        assert_eq!(empty_result.unwrap_err().kind, ErrorKind::BadRequest);
+        assert_eq!(long_result.unwrap_err().kind, ErrorKind::BadRequest);
+    }
+
+    #[test]
+    fn payload_size_allows_up_to_256_kib() {
+        // Arrange
+        let sizes = [0, 256 * 1024];
+
+        for size in sizes {
+            // Act
+            let result = ensure_payload_size(size);
+
+            // Assert
+            assert_eq!(result, Ok(()));
+        }
+    }
+
+    #[test]
+    fn payload_size_rejects_over_256_kib() {
+        // Arrange
+        let size = 256 * 1024 + 1;
+
+        // Act
+        let result = ensure_payload_size(size);
+
+        // Assert
+        assert_eq!(result.unwrap_err().kind, ErrorKind::PayloadTooLarge);
     }
 
     #[test]
