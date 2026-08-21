@@ -17,7 +17,6 @@ use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use crate::{
-    auth,
     domain::models::{ApiKeyView, AttemptView, EndpointView, EventView},
     domain::validation::{MAX_ENDPOINTS, MAX_KEYS, extract_header, validate_name},
 };
@@ -323,7 +322,7 @@ async fn ingest(
     Path(endpoint_id): Path<Uuid>,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    auth::require_api_key(&headers, &state.pool)
+    crate::store::auth::require_api_key(&headers, &state.pool)
         .await
         .map_err(|_| unauthorized("invalid API key"))?;
     crate::domain::validation::ensure_payload_size(body.len())?;
@@ -375,7 +374,7 @@ async fn ingest(
 }
 
 async fn session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
-    auth::require_session(headers, pool)
+    crate::store::auth::require_session(headers, pool)
         .await
         .map_err(|_| unauthorized("invalid or expired session"))
 }

@@ -1,7 +1,7 @@
 mod api;
-mod auth;
-mod domain;
 mod config;
+mod domain;
+mod store;
 mod worker;
 
 use anyhow::Result;
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
         .connect(&config.database_url)
         .await?;
     sqlx::migrate!().run(&pool).await?;
-    auth::bootstrap_owner(&pool, &config).await?;
+    store::auth::bootstrap_owner(&pool, &config).await?;
 
     let client = reqwest::Client::builder()
         .redirect(Policy::none())

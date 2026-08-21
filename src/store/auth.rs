@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, bail};
-use axum::http::HeaderMap;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::{config::Config, domain::validation::bearer_token};
+use crate::config::Config;
 use crate::domain::secrets::{hash_password, hash_secret};
+use crate::domain::validation::bearer_token;
+use axum::http::HeaderMap;
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
@@ -34,7 +35,6 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     tracing::info!(email, "created the PromptJang Webhooks OSS owner");
     Ok(())
 }
-
 
 pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
     let raw = bearer_token(headers).context("session token required")?;
