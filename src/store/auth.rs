@@ -36,6 +36,30 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     Ok(())
 }
 
+pub async fn verify_login(pool: &PgPool, email: &str, password: &str) -> Result<Option<Uuid>> {
+    let owner =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM owners WHERE email=$1")
+            .bind(email.to_lowercase())
+            .fetch_optional(pool)
+            .await?;
+    Ok(owner.filter(|(_, encoded)| {
+        crate::domain::secrets::verify_password(password, encoded)
+    })
+    .map(|(id, _)| id))
+}
+
+pub async fn issue_session(pool: &PgPool, owner_id: Uuid) -> Result<String> {
+    let token = crate::domain::secrets::new_secret("pj_session_");
+    sqlx::query("INSERT INTO sessions (id,owner_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)")
+        .bind(Uuid::new_v4())
+        .bind(owner_id)
+        .bind(hash_secret(&token))
+        .bind(chrono::Utc::now() + chrono::Duration::hours(24))
+        .execute(pool)
+        .await?;
+    Ok(token)
+}
+
 pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
     let raw = bearer_token(headers).context("session token required")?;
     if !raw.starts_with("pj_session_") {
