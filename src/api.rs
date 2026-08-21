@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr};
+use std::collections::HashMap;
 
 use axum::{
     Json, Router,
@@ -14,7 +14,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tower_http::services::{ServeDir, ServeFile};
-use url::Url;
 use uuid::Uuid;
 
 use crate::{
@@ -156,7 +155,7 @@ async fn create_endpoint(
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
-    validate_public_https(&input.url).await?;
+    crate::domain::validation::validate_public_https(&input.url).await?;
     let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM endpoints")
         .fetch_one(&state.pool)
         .await
@@ -188,7 +187,7 @@ async fn update_endpoint(
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
-    validate_public_https(&input.url).await?;
+    crate::domain::validation::validate_public_https(&input.url).await?;
     let changed=sqlx::query("UPDATE endpoints SET name=$2,url=$3,enabled=COALESCE($4,enabled),updated_at=now() WHERE id=$1")
         .bind(id).bind(input.name).bind(input.url).bind(input.enabled).execute(&state.pool).await.map_err(internal)?.rows_affected();
     if changed == 0 {
@@ -381,63 +380,6 @@ async fn session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
         .map_err(|_| unauthorized("invalid or expired session"))
 }
 
-async fn validate_public_https(raw: &str) -> Result<()> {
-    let url = Url::parse(raw)
-        .map_err(|_| AppError(StatusCode::BAD_REQUEST, "invalid endpoint URL".into()))?;
-    if url.scheme() != "https" || url.username() != "" || url.password().is_some() {
-        return Err(AppError(
-            StatusCode::BAD_REQUEST,
-            "endpoint must be a public HTTPS URL without credentials".into(),
-        ));
-    }
-    let host = url
-        .host_str()
-        .ok_or_else(|| AppError(StatusCode::BAD_REQUEST, "endpoint host is required".into()))?;
-    if host.eq_ignore_ascii_case("localhost") {
-        return Err(AppError(
-            StatusCode::BAD_REQUEST,
-            "private endpoint hosts are not allowed".into(),
-        ));
-    }
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = tokio::net::lookup_host((host, port)).await.map_err(|_| {
-        AppError(
-            StatusCode::BAD_REQUEST,
-            "endpoint host could not be resolved".into(),
-        )
-    })?;
-    if addresses
-        .into_iter()
-        .any(|address| !public_ip(address.ip()))
-    {
-        return Err(AppError(
-            StatusCode::BAD_REQUEST,
-            "private endpoint addresses are not allowed".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v) => {
-            !(v.is_private()
-                || v.is_loopback()
-                || v.is_link_local()
-                || v.is_broadcast()
-                || v.is_documentation()
-                || v.is_multicast()
-                || v.is_unspecified())
-        }
-        IpAddr::V6(v) => {
-            !(v.is_loopback()
-                || v.is_unspecified()
-                || v.is_unique_local()
-                || v.is_unicast_link_local()
-                || v.is_multicast())
-        }
-    }
-}
 fn internal(error: impl std::fmt::Display) -> AppError {
     tracing::error!(%error,"request failed");
     AppError(

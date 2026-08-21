@@ -1,5 +1,8 @@
+use std::net::IpAddr;
+
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
+use url::Url;
 
 use crate::domain::DomainError;
 
@@ -51,6 +54,58 @@ pub fn ensure_payload_size(size: usize) -> Result<(), DomainError> {
         ))
     } else {
         Ok(())
+    }
+}
+
+pub async fn validate_public_https(raw: &str) -> Result<(), DomainError> {
+    let url = Url::parse(raw)
+        .map_err(|_| DomainError::bad_request("invalid endpoint URL"))?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err(DomainError::bad_request(
+            "endpoint must be a public HTTPS URL without credentials",
+        ));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| DomainError::bad_request("endpoint host is required"))?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Err(DomainError::bad_request(
+            "private endpoint hosts are not allowed",
+        ));
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addresses = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|_| DomainError::bad_request("endpoint host could not be resolved"))?;
+    if addresses
+        .into_iter()
+        .any(|address| !is_public_ip(address.ip()))
+    {
+        return Err(DomainError::bad_request(
+            "private endpoint addresses are not allowed",
+        ));
+    }
+    Ok(())
+}
+
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => {
+            !(v.is_private()
+                || v.is_loopback()
+                || v.is_link_local()
+                || v.is_broadcast()
+                || v.is_documentation()
+                || v.is_multicast()
+                || v.is_unspecified())
+        }
+        IpAddr::V6(v) => {
+            !(v.is_loopback()
+                || v.is_unspecified()
+                || v.is_unique_local()
+                || v.is_unicast_link_local()
+                || v.is_multicast())
+        }
     }
 }
 
@@ -197,6 +252,98 @@ mod tests {
 
         // Assert
         assert_eq!(result.unwrap_err().kind, ErrorKind::PayloadTooLarge);
+    }
+
+    #[test]
+    fn private_v4_addresses_are_rejected() {
+        // Arrange
+        let addresses = [
+            "10.0.0.1".parse::<IpAddr>().expect("valid IPv4"),
+            "192.168.1.1".parse::<IpAddr>().expect("valid IPv4"),
+            "127.0.0.1".parse::<IpAddr>().expect("valid IPv4"),
+            "169.254.1.1".parse::<IpAddr>().expect("valid IPv4"),
+            "0.0.0.0".parse::<IpAddr>().expect("valid IPv4"),
+        ];
+
+        for address in addresses {
+            // Act
+            let public = is_public_ip(address);
+
+            // Assert
+            assert!(!public, "{address} must not be public");
+        }
+    }
+
+    #[test]
+    fn public_and_private_v6_addresses_are_distinguished() {
+        // Arrange
+        let public = "2606:4700::1111".parse::<IpAddr>().expect("valid IPv6");
+        let loopback = "::1".parse::<IpAddr>().expect("valid IPv6");
+        let unique_local = "fd00::1".parse::<IpAddr>().expect("valid IPv6");
+
+        // Act
+        let results = [is_public_ip(public), is_public_ip(loopback), is_public_ip(unique_local)];
+
+        // Assert
+        assert!(results[0], "public IPv6 must be public");
+        assert!(!results[1], "loopback must not be public");
+        assert!(!results[2], "unique-local must not be public");
+    }
+
+    #[tokio::test]
+    async fn https_url_with_plain_host_is_accepted() {
+        // Arrange
+        let raw = "https://example.com/hook";
+
+        // Act
+        let result = validate_public_https(raw).await;
+
+        // Assert
+        assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn non_https_or_credentialed_urls_are_rejected() {
+        // Arrange
+        let cases = [
+            "http://example.com/hook",
+            "ftp://example.com/hook",
+            "https://user:pass@example.com/hook",
+            "not a url",
+        ];
+
+        for raw in cases {
+            // Act
+            let result = validate_public_https(raw).await;
+
+            // Assert
+            assert_eq!(
+                result.unwrap_err().kind,
+                ErrorKind::BadRequest,
+                "{raw} must be rejected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn localhost_and_unresolvable_hosts_are_rejected() {
+        // Arrange
+        let cases = [
+            "https://localhost/hook",
+            "https://name.invalid.hook.example",
+        ];
+
+        for raw in cases {
+            // Act
+            let result = validate_public_https(raw).await;
+
+            // Assert
+            assert_eq!(
+                result.unwrap_err().kind,
+                ErrorKind::BadRequest,
+                "{raw} must be rejected"
+            );
+        }
     }
 
     #[test]
