@@ -3,7 +3,6 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
     BadRequest,
-    Unauthorized,
     NotFound,
     Conflict,
     PayloadTooLarge,
@@ -20,10 +19,6 @@ pub struct DomainError {
 impl DomainError {
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::BadRequest, message)
-    }
-
-    pub fn unauthorized(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Unauthorized, message)
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
@@ -78,7 +73,6 @@ mod tests {
         // Arrange
         let cases = [
             (DomainError::bad_request("bad"), ErrorKind::BadRequest),
-            (DomainError::unauthorized("no"), ErrorKind::Unauthorized),
             (DomainError::not_found("gone"), ErrorKind::NotFound),
             (DomainError::conflict("clash"), ErrorKind::Conflict),
             (

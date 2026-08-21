@@ -30,7 +30,6 @@ impl From<DomainError> for AppError {
     fn from(error: DomainError) -> Self {
         let status = match error.kind {
             ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
-            ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
             ErrorKind::NotFound => StatusCode::NOT_FOUND,
             ErrorKind::Conflict => StatusCode::CONFLICT,
             ErrorKind::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
@@ -52,7 +51,6 @@ mod tests {
         // Arrange
         let cases = [
             (DomainError::bad_request("x"), StatusCode::BAD_REQUEST),
-            (DomainError::unauthorized("x"), StatusCode::UNAUTHORIZED),
             (DomainError::not_found("x"), StatusCode::NOT_FOUND),
             (DomainError::conflict("x"), StatusCode::CONFLICT),
             (
