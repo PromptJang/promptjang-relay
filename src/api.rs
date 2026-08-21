@@ -20,7 +20,9 @@ use uuid::Uuid;
 use crate::{
     auth,
     domain::models::{ApiKeyView, AttemptView, EndpointView, EventView},
-    domain::validation::{MAX_ENDPOINTS, MAX_KEYS, MAX_PAYLOAD_BYTES, validate_name},
+    domain::validation::{
+        MAX_ENDPOINTS, MAX_KEYS, MAX_PAYLOAD_BYTES, extract_header, validate_name,
+    },
 };
 
 
@@ -375,8 +377,8 @@ async fn ingest(
         }
     }
     let id = Uuid::new_v4();
-    let event_type = header(&headers, "X-Event-Type");
-    let correlation_id = header(&headers, "X-Correlation-ID");
+    let event_type = extract_header(&headers, "X-Event-Type");
+    let correlation_id = extract_header(&headers, "X-Correlation-ID");
     sqlx::query("INSERT INTO events (id,endpoint_id,status,event_type,correlation_id,payload,payload_sha256,idempotency_key_hash) VALUES ($1,$2,'QUEUED',$3,$4,$5,$6,$7)")
         .bind(id).bind(endpoint_id).bind(event_type).bind(correlation_id).bind(payload).bind(payload_hash).bind(key_hash).execute(&mut *tx).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
@@ -390,13 +392,6 @@ async fn session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
     auth::require_session(headers, pool)
         .await
         .map_err(|_| unauthorized("invalid or expired session"))
-}
-fn header(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| !v.is_empty() && v.len() <= 128)
-        .map(String::from)
 }
 
 async fn validate_public_https(raw: &str) -> Result<()> {

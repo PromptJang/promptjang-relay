@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::config::Config;
+use crate::{config::Config, domain::validation::bearer_token};
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
@@ -63,16 +63,9 @@ pub fn hash_secret(value: &str) -> String {
     hex::encode(Sha256::digest(value.as_bytes()))
 }
 
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
-}
 
 pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
-    let raw = bearer(headers).context("session token required")?;
+    let raw = bearer_token(headers).context("session token required")?;
     if !raw.starts_with("pj_session_") {
         bail!("session token required");
     }
@@ -87,7 +80,7 @@ pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid>
 }
 
 pub async fn require_api_key(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
-    let raw = bearer(headers).context("API key required")?;
+    let raw = bearer_token(headers).context("API key required")?;
     if !raw.starts_with("pj_oss_") {
         bail!("API key required");
     }
