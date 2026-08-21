@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: promptjang
+      POSTGRES_USER: promptjang
+      POSTGRES_PASSWORD: ${PJ_POSTGRES_PASSWORD:-local_promptjang_password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promptjang -d promptjang"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - promptjang-postgres:/var/lib/postgresql/data
+
+  promptjang:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://promptjang:${PJ_POSTGRES_PASSWORD:-local_promptjang_password}@postgres:5432/promptjang
+      PJ_ADMIN_EMAIL: ${PJ_ADMIN_EMAIL:?Set PJ_ADMIN_EMAIL}
+      PJ_ADMIN_PASSWORD: ${PJ_ADMIN_PASSWORD:?Set PJ_ADMIN_PASSWORD}
+      RUST_LOG: ${RUST_LOG:-promptjang_webhooks=info,tower_http=info}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  promptjang-postgres:
