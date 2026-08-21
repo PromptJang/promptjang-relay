@@ -182,12 +182,7 @@ async fn delete_endpoint(
 
 async fn list_keys(State(state): State<AppState>, headers: HeaderMap) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    let keys = sqlx::query_as::<_, ApiKeyView>(
-        "SELECT id,name,prefix,last_used_at,created_at FROM api_keys ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(internal)?;
+    let keys = crate::store::keys::list(&state.pool).await?;
     Ok(Json(json!({"keys":keys})))
 }
 
@@ -202,24 +197,7 @@ async fn create_key(
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
-    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM api_keys")
-        .fetch_one(&state.pool)
-        .await
-        .map_err(internal)?;
-    if count >= MAX_KEYS {
-        return Err(conflict("API key limit reached (5)"));
-    }
-    let id = Uuid::new_v4();
-    let secret = crate::domain::secrets::new_secret("pj_oss_");
-    let prefix = secret.chars().take(15).collect::<String>();
-    sqlx::query("INSERT INTO api_keys (id,name,prefix,secret_hash) VALUES ($1,$2,$3,$4)")
-        .bind(id)
-        .bind(input.name)
-        .bind(prefix)
-        .bind(crate::domain::secrets::hash_secret(&secret))
-        .execute(&state.pool)
-        .await
-        .map_err(internal)?;
+    let (id, secret) = crate::store::keys::create(&state.pool, input.name).await?;
     Ok((StatusCode::CREATED, Json(json!({"id":id,"key":secret}))))
 }
 
@@ -229,11 +207,7 @@ async fn delete_key(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    sqlx::query("DELETE FROM api_keys WHERE id=$1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .map_err(internal)?;
+    crate::store::keys::delete(&state.pool, id).await?;
     Ok(Json(json!({"deleted":true})))
 }
 
