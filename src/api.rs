@@ -222,8 +222,7 @@ async fn list_events(
         .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(100)
         .clamp(1, 100);
-    let events=sqlx::query_as::<_,EventView>("SELECT id,endpoint_id,status,event_type,correlation_id,payload,retry_count,max_retries,is_replay,source_event_id,next_attempt_at,last_error,created_at,updated_at FROM events ORDER BY created_at DESC LIMIT $1")
-        .bind(limit).fetch_all(&state.pool).await.map_err(internal)?;
+    let events = crate::store::events::list(&state.pool, limit).await?;
     Ok(Json(json!({"events":events})))
 }
 
@@ -233,10 +232,9 @@ async fn get_event(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    let event=sqlx::query_as::<_,EventView>("SELECT id,endpoint_id,status,event_type,correlation_id,payload,retry_count,max_retries,is_replay,source_event_id,next_attempt_at,last_error,created_at,updated_at FROM events WHERE id=$1")
-        .bind(id).fetch_optional(&state.pool).await.map_err(internal)?.ok_or_else(||not_found("event not found"))?;
-    let attempts=sqlx::query_as::<_,AttemptView>("SELECT id,event_id,status_code,response_body,duration_ms,error,attempted_at FROM delivery_attempts WHERE event_id=$1 ORDER BY attempted_at")
-        .bind(id).fetch_all(&state.pool).await.map_err(internal)?;
+    let (event, attempts) = crate::store::events::get(&state.pool, id)
+        .await?
+        .ok_or_else(|| not_found("event not found"))?;
     Ok(Json(json!({"event":event,"attempts":attempts})))
 }
 
@@ -246,11 +244,7 @@ async fn replay_event(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    let source=sqlx::query_as::<_,(Uuid,Value,String,Option<String>,Option<String>)>("SELECT endpoint_id,payload,payload_sha256,event_type,correlation_id FROM events WHERE id=$1")
-        .bind(id).fetch_optional(&state.pool).await.map_err(internal)?.ok_or_else(||not_found("event not found"))?;
-    let replay = Uuid::new_v4();
-    sqlx::query("INSERT INTO events (id,endpoint_id,status,payload,payload_sha256,event_type,correlation_id,is_replay,source_event_id) VALUES ($1,$2,'QUEUED',$3,$4,$5,$6,true,$7)")
-        .bind(replay).bind(source.0).bind(source.1).bind(source.2).bind(source.3).bind(source.4).bind(id).execute(&state.pool).await.map_err(internal)?;
+    let replay = crate::store::events::replay(&state.pool, id).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(json!({"id":replay,"status":"QUEUED","is_replay":true})),
@@ -269,49 +263,31 @@ async fn ingest(
     crate::domain::validation::ensure_payload_size(body.len())?;
     let payload: Value = serde_json::from_slice(&body)
         .map_err(|_| AppError(StatusCode::BAD_REQUEST, "payload must be valid JSON".into()))?;
-    let enabled = sqlx::query_scalar::<_, bool>("SELECT enabled FROM endpoints WHERE id=$1")
-        .bind(endpoint_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| not_found("endpoint not found"))?;
-    if !enabled {
-        return Err(conflict("endpoint is disabled"));
-    }
-    let minute_count=sqlx::query_scalar::<_,i64>("SELECT count(*) FROM events WHERE endpoint_id=$1 AND is_replay=false AND created_at>=date_trunc('minute',now())")
-        .bind(endpoint_id).fetch_one(&state.pool).await.map_err(internal)?;
-    if minute_count >= 1000 {
-        return Err(AppError(
-            StatusCode::TOO_MANY_REQUESTS,
-            "accepted-event limit reached".into(),
-        ));
-    }
-    let payload_hash = hex::encode(Sha256::digest(&body));
+    let payload_hash = crate::domain::secrets::hash_bytes(&body);
     let idempotency = crate::domain::validation::idempotency_key(&headers)?;
     let key_hash = idempotency.as_deref().map(crate::domain::secrets::hash_secret);
-    let mut tx = state.pool.begin().await.map_err(internal)?;
-    if let Some(ref hash) = key_hash {
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-            .bind(format!("{endpoint_id}:{hash}"))
-            .execute(&mut *tx)
-            .await
-            .map_err(internal)?;
-        if let Some((existing_id,existing_hash,status))=sqlx::query_as::<_,(Uuid,String,String)>("SELECT id,payload_sha256,status FROM events WHERE endpoint_id=$1 AND idempotency_key_hash=$2 AND is_replay=false")
-            .bind(endpoint_id).bind(hash).fetch_optional(&mut *tx).await.map_err(internal)?{
-            if existing_hash!=payload_hash{return Err(conflict("Idempotency-Key was already used with a different payload"))}
-            tx.commit().await.map_err(internal)?;return Ok((StatusCode::ACCEPTED,Json(json!({"id":existing_id,"status":status,"idempotent_replay":true}))))
-        }
-    }
-    let id = Uuid::new_v4();
     let event_type = extract_header(&headers, "X-Event-Type");
     let correlation_id = extract_header(&headers, "X-Correlation-ID");
-    sqlx::query("INSERT INTO events (id,endpoint_id,status,event_type,correlation_id,payload,payload_sha256,idempotency_key_hash) VALUES ($1,$2,'QUEUED',$3,$4,$5,$6,$7)")
-        .bind(id).bind(endpoint_id).bind(event_type).bind(correlation_id).bind(payload).bind(payload_hash).bind(key_hash).execute(&mut *tx).await.map_err(internal)?;
-    tx.commit().await.map_err(internal)?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(json!({"id":id,"status":"QUEUED"})),
-    ))
+    match crate::store::events::ingest(
+        &state.pool,
+        endpoint_id,
+        payload,
+        payload_hash,
+        key_hash,
+        event_type,
+        correlation_id,
+    )
+    .await?
+    {
+        crate::store::events::IngestOutcome::Created { id } => Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"id":id,"status":"QUEUED"})),
+        )),
+        crate::store::events::IngestOutcome::IdempotentReplay { id, status } => Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"id":id,"status":status,"idempotent_replay":true})),
+        )),
+    }
 }
 
 async fn session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
