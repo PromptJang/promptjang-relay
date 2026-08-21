@@ -20,11 +20,9 @@ use uuid::Uuid;
 use crate::{
     auth,
     domain::models::{ApiKeyView, AttemptView, EndpointView, EventView},
+    domain::validation::{MAX_ENDPOINTS, MAX_KEYS, MAX_PAYLOAD_BYTES, validate_name},
 };
 
-const MAX_ENDPOINTS: i64 = 10;
-const MAX_KEYS: i64 = 5;
-const MAX_PAYLOAD: usize = 256 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -42,6 +40,21 @@ impl IntoResponse for AppError {
 impl From<anyhow::Error> for AppError {
     fn from(error: anyhow::Error) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    }
+}
+
+impl From<crate::domain::DomainError> for AppError {
+    fn from(error: crate::domain::DomainError) -> Self {
+        let status = match error.kind {
+            crate::domain::ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
+            crate::domain::ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
+            crate::domain::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            crate::domain::ErrorKind::Conflict => StatusCode::CONFLICT,
+            crate::domain::ErrorKind::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            crate::domain::ErrorKind::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+            crate::domain::ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self(status, error.message)
     }
 }
 
@@ -314,7 +327,7 @@ async fn ingest(
     auth::require_api_key(&headers, &state.pool)
         .await
         .map_err(|_| unauthorized("invalid API key"))?;
-    if body.len() > MAX_PAYLOAD {
+    if body.len() > MAX_PAYLOAD_BYTES {
         return Err(AppError(
             StatusCode::PAYLOAD_TOO_LARGE,
             "payload exceeds 256 KB".into(),
@@ -384,16 +397,6 @@ fn header(headers: &HeaderMap, name: &str) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .filter(|v| !v.is_empty() && v.len() <= 128)
         .map(String::from)
-}
-fn validate_name(value: &str) -> Result<()> {
-    if value.trim().is_empty() || value.len() > 100 {
-        Err(AppError(
-            StatusCode::BAD_REQUEST,
-            "name must contain 1 to 100 characters".into(),
-        ))
-    } else {
-        Ok(())
-    }
 }
 
 async fn validate_public_https(raw: &str) -> Result<()> {
