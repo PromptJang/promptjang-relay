@@ -1,7 +1,7 @@
 mod api;
-mod auth;
 mod config;
-mod models;
+mod domain;
+mod store;
 mod worker;
 
 use anyhow::Result;
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
         .connect(&config.database_url)
         .await?;
     sqlx::migrate!().run(&pool).await?;
-    auth::bootstrap_owner(&pool, &config).await?;
+    store::auth::bootstrap_owner(&pool, &config).await?;
 
     let client = reqwest::Client::builder()
         .redirect(Policy::none())
@@ -46,16 +46,21 @@ async fn main() -> Result<()> {
 
 async fn shutdown() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("install Ctrl+C handler")
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::warn!(%error, "Ctrl+C handler failed");
+        }
     };
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("install SIGTERM handler")
-            .recv()
-            .await;
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "SIGTERM handler failed");
+            }
+        }
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();

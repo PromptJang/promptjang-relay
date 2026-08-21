@@ -1,12 +1,11 @@
 use anyhow::{Context, Result, bail};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
-use axum::http::HeaderMap;
-use rand::{RngCore, rngs::OsRng};
-use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::Config;
+use crate::domain::secrets::{hash_password, hash_secret};
+use crate::domain::validation::bearer_token;
+use axum::http::HeaderMap;
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
@@ -26,7 +25,8 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     if password.len() < 12 {
         bail!("PJ_ADMIN_PASSWORD must contain at least 12 characters");
     }
-    let password_hash = hash_password(password)?;
+    let password_hash =
+        hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     sqlx::query("INSERT INTO owners (id, email, password_hash) VALUES ($1, $2, $3)")
         .bind(Uuid::new_v4())
         .bind(email.to_lowercase())
@@ -37,42 +37,31 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn hash_password(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Ok(Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?
-        .to_string())
+pub async fn verify_login(pool: &PgPool, email: &str, password: &str) -> Result<Option<Uuid>> {
+    let owner =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM owners WHERE email=$1")
+            .bind(email.to_lowercase())
+            .fetch_optional(pool)
+            .await?;
+    Ok(owner
+        .filter(|(_, encoded)| crate::domain::secrets::verify_password(password, encoded))
+        .map(|(id, _)| id))
 }
 
-pub fn verify_password(password: &str, encoded: &str) -> bool {
-    PasswordHash::new(encoded).ok().is_some_and(|hash| {
-        Argon2::default()
-            .verify_password(password.as_bytes(), &hash)
-            .is_ok()
-    })
-}
-
-pub fn new_secret(prefix: &str) -> String {
-    let mut bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    format!("{prefix}{}", hex::encode(bytes))
-}
-
-pub fn hash_secret(value: &str) -> String {
-    hex::encode(Sha256::digest(value.as_bytes()))
-}
-
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
+pub async fn issue_session(pool: &PgPool, owner_id: Uuid) -> Result<String> {
+    let token = crate::domain::secrets::new_secret("pj_session_");
+    sqlx::query("INSERT INTO sessions (id,owner_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)")
+        .bind(Uuid::new_v4())
+        .bind(owner_id)
+        .bind(hash_secret(&token))
+        .bind(chrono::Utc::now() + chrono::Duration::hours(24))
+        .execute(pool)
+        .await?;
+    Ok(token)
 }
 
 pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
-    let raw = bearer(headers).context("session token required")?;
+    let raw = bearer_token(headers).context("session token required")?;
     if !raw.starts_with("pj_session_") {
         bail!("session token required");
     }
@@ -87,7 +76,7 @@ pub async fn require_session(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid>
 }
 
 pub async fn require_api_key(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
-    let raw = bearer(headers).context("API key required")?;
+    let raw = bearer_token(headers).context("API key required")?;
     if !raw.starts_with("pj_oss_") {
         bail!("API key required");
     }
