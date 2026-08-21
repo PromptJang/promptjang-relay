@@ -4,23 +4,58 @@ mod state;
 
 pub use state::AppState;
 
-use axum::Router;
+use axum::http::{HeaderValue, Request};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::{delete, get, patch, post};
+use axum::{Router, middleware};
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::api::handlers::{
-    endpoints::{create_endpoint, delete_endpoint, list_endpoints, update_endpoint},
+    endpoints::{
+        create_endpoint, delete_endpoint, finish_rotation, list_endpoints, rotate_secret,
+        test_destination, update_endpoint,
+    },
     events::{get_event, list_events, replay_event},
-    health::{health, ready},
+    health::{health, ready, system},
     ingest::ingest,
     keys::{create_key, delete_key, list_keys},
-    login::login,
+    login::{login, logout},
 };
 
+async fn deprecated(request: Request<axum::body::Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert("Deprecation", HeaderValue::from_static("true"));
+    response.headers_mut().insert(
+        "Link",
+        HeaderValue::from_static("</api/v1>; rel=\"successor-version\""),
+    );
+    response
+}
+
+async fn request_id(mut request: Request<axum::body::Body>, next: Next) -> Response {
+    let value = request
+        .headers()
+        .get("X-Request-ID")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if let Ok(header) = HeaderValue::from_str(&value) {
+        request.headers_mut().insert("X-Request-ID", header);
+    }
+    let mut response = next.run(request).await;
+    if let Ok(header) = HeaderValue::from_str(&value) {
+        response.headers_mut().insert("X-Request-ID", header);
+    }
+    response
+}
+
 pub fn router(state: AppState, static_dir: String) -> Router {
-    Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
+    let legacy = Router::new()
         .route("/api/login", post(login))
         .route("/api/endpoints", get(list_endpoints).post(create_endpoint))
         .route(
@@ -33,8 +68,43 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/events/{id}", get(get_event))
         .route("/api/events/{id}/replay", post(replay_event))
         .route("/e/{endpoint_id}", post(ingest))
+        .layer(middleware::from_fn(deprecated));
+    Router::new()
+        .route("/health", get(health))
+        .route("/ready", get(ready))
+        .route("/api/v1/session", post(login).delete(logout))
+        .route("/api/v1/destinations", get(list_endpoints).post(create_endpoint))
+        .route("/api/v1/destinations/{id}", patch(update_endpoint).delete(delete_endpoint))
+        .route("/api/v1/destinations/{id}/signing-secret/rotate", post(rotate_secret))
+        .route("/api/v1/destinations/{id}/signing-secret/previous", delete(finish_rotation))
+        .route("/api/v1/destinations/{id}/test", post(test_destination))
+        .route("/api/v1/keys", get(list_keys).post(create_key))
+        .route("/api/v1/keys/{id}", delete(delete_key))
+        .route("/api/v1/events", get(list_events))
+        .route("/api/v1/events/{id}", get(get_event))
+        .route("/api/v1/events/{id}/replay", post(replay_event))
+        .route("/api/v1/system", get(system))
+        .route("/v1/destinations/{endpoint_id}/events", post(ingest))
+        .merge(legacy)
         .fallback_service(
             ServeDir::new(&static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html"))),
         )
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"),
+        ))
+        .layer(middleware::from_fn(request_id))
         .with_state(state)
 }

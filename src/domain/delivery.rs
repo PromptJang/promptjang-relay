@@ -2,18 +2,17 @@ use crate::domain::DomainError;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+#[cfg(test)]
 pub const RETRY_DELAYS: [i64; 5] = [60, 120, 240, 480, 960];
+#[cfg(test)]
 const MAX_RESPONSE_BYTES: usize = 10_240;
-const FALLBACK_DELAY: i64 = 960;
 
+#[cfg(test)]
 pub fn retry_delay(retry_count: i32) -> Option<i64> {
     RETRY_DELAYS.get(retry_count.max(0) as usize).copied()
 }
 
-pub fn fallback_delay() -> i64 {
-    FALLBACK_DELAY
-}
-
+#[cfg(test)]
 pub fn truncate_body(body: String) -> String {
     if body.len() <= MAX_RESPONSE_BYTES {
         return body;

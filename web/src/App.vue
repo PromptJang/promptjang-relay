@@ -1,34 +1,43 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, shallowRef } from 'vue'
+import AppShell from './components/AppShell.vue'
+import LoginView from './components/LoginView.vue'
+import SecretNotice from './components/SecretNotice.vue'
+import { useRelayApi } from './composables/useRelayApi'
+import { useRelayData } from './composables/useRelayData'
+import DestinationsView from './views/DestinationsView.vue'
+import EventsView from './views/EventsView.vue'
+import KeysView from './views/KeysView.vue'
+import OverviewView from './views/OverviewView.vue'
+import SystemView from './views/SystemView.vue'
+import type { ViewName } from './types'
 
-type Endpoint={id:string;name:string;url:string;enabled:boolean;created_at:string}
-type Event={id:string;endpoint_id:string;status:string;event_type?:string;retry_count:number;max_retries:number;last_error?:string;created_at:string}
-type ApiKey={id:string;name:string;prefix:string;last_used_at?:string;created_at:string}
-const token=ref(sessionStorage.getItem('pj_session')||'');const error=ref('');const loading=ref(false);const view=ref<'events'|'endpoints'|'keys'>('events')
-const endpoints=ref<Endpoint[]>([]);const events=ref<Event[]>([]);const keys=ref<ApiKey[]>([]);const oneTimeSecret=ref('')
-const loginForm=reactive({email:'',password:''});const endpointForm=reactive({name:'',url:''});const keyName=ref('')
-const activeCount=computed(()=>endpoints.value.filter(item=>item.enabled).length)
-async function request<T>(path:string,init:RequestInit={}):Promise<T>{const response=await fetch(path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token.value}`,...init.headers}});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`HTTP ${response.status}`);return body}
-async function login(){loading.value=true;error.value='';try{const data=await request<{token:string}>('/api/login',{method:'POST',body:JSON.stringify(loginForm)});token.value=data.token;sessionStorage.setItem('pj_session',data.token);await refresh()}catch(cause){error.value=cause instanceof Error?cause.message:'Login failed'}finally{loading.value=false}}
-function logout(){token.value='';sessionStorage.removeItem('pj_session')}
-async function refresh(){if(!token.value)return;loading.value=true;error.value='';try{const [endpointData,eventData,keyData]=await Promise.all([request<{endpoints:Endpoint[]}>('/api/endpoints'),request<{events:Event[]}>('/api/events'),request<{keys:ApiKey[]}>('/api/keys')]);endpoints.value=endpointData.endpoints;events.value=eventData.events;keys.value=keyData.keys}catch(cause){error.value=cause instanceof Error?cause.message:'Could not load data'}finally{loading.value=false}}
-async function createEndpoint(){try{const data=await request<{secret:string}>('/api/endpoints',{method:'POST',body:JSON.stringify(endpointForm)});oneTimeSecret.value=data.secret;endpointForm.name='';endpointForm.url='';await refresh()}catch(cause){error.value=cause instanceof Error?cause.message:'Could not create endpoint'}}
-async function deleteEndpoint(id:string){if(!confirm('Delete this endpoint and its event history?'))return;await request(`/api/endpoints/${id}`,{method:'DELETE'});await refresh()}
-async function createKey(){try{const data=await request<{key:string}>('/api/keys',{method:'POST',body:JSON.stringify({name:keyName.value})});oneTimeSecret.value=data.key;keyName.value='';await refresh()}catch(cause){error.value=cause instanceof Error?cause.message:'Could not create key'}}
-async function deleteKey(id:string){if(!confirm('Revoke this API key?'))return;await request(`/api/keys/${id}`,{method:'DELETE'});await refresh()}
-async function replay(id:string){await request(`/api/events/${id}/replay`,{method:'POST'});await refresh()}
-async function copySecret(){await navigator.clipboard.writeText(oneTimeSecret.value)}
-onMounted(refresh)
+const view = shallowRef<ViewName>('overview')
+const sessionError = shallowRef('')
+const sessionLoading = shallowRef(false)
+const { token, request, login, logout } = useRelayApi()
+const relay = useRelayData(request)
+
+async function signIn(email: string, password: string) {
+  sessionLoading.value = true
+  sessionError.value = ''
+  try { await login(email, password); await relay.refresh() }
+  catch (cause) { sessionError.value = cause instanceof Error ? cause.message : 'Login failed' }
+  finally { sessionLoading.value = false }
+}
+async function signOut() { await logout(); view.value = 'overview' }
+onMounted(() => { if (token.value) void relay.refresh() })
 </script>
 
 <template>
-  <main v-if="!token" class="login-shell"><section class="login-card"><p class="label">WEBHOOKS · SELF-HOSTED</p><h1>Prompt<span>Jang</span></h1><p class="muted">Sign in with the owner account created during first startup.</p><form @submit.prevent="login"><label>Email<input v-model="loginForm.email" type="email" required autocomplete="username"></label><label>Password<input v-model="loginForm.password" type="password" required autocomplete="current-password"></label><p v-if="error" class="error">{{ error }}</p><button :disabled="loading">{{loading?'Signing in…':'Sign in'}}</button></form></section></main>
-  <div v-else class="app-shell">
-    <aside><div><p class="label">WEBHOOKS · SELF-HOSTED</p><h2>Prompt<span>Jang</span></h2></div><nav><button v-for="item in ['events','endpoints','keys']" :key="item" :class="{active:view===item}" @click="view=item as typeof view">{{item}}</button></nav><button class="ghost" @click="logout">Sign out</button></aside>
-    <main class="content"><header><div><p class="label">LOCAL WORKSPACE</p><h1>{{view}}</h1></div><button class="ghost" :disabled="loading" @click="refresh">Refresh</button></header><p v-if="error" class="error banner">{{error}}</p><div v-if="oneTimeSecret" class="secret"><strong>Copy this secret now. It will not be shown again.</strong><code>{{oneTimeSecret}}</code><button @click="copySecret">Copy</button><button class="ghost" @click="oneTimeSecret=''">Dismiss</button></div>
-      <section v-if="view==='events'"><div class="metrics"><article><span>Events</span><strong>{{events.length}}</strong></article><article><span>Delivered</span><strong>{{events.filter(item=>item.status==='DELIVERED').length}}</strong></article><article><span>Expired</span><strong>{{events.filter(item=>item.status==='EXPIRED').length}}</strong></article></div><div class="table"><table><thead><tr><th>Event</th><th>Status</th><th>Retries</th><th>Created</th><th></th></tr></thead><tbody><tr v-for="event in events" :key="event.id"><td><code>{{event.id}}</code><small>{{event.event_type||'untyped'}}</small></td><td><span class="badge" :data-state="event.status">{{event.status}}</span></td><td>{{event.retry_count}} / {{event.max_retries}}</td><td>{{new Date(event.created_at).toLocaleString()}}</td><td><button class="ghost" @click="replay(event.id)">Replay</button></td></tr></tbody></table><p v-if="!events.length" class="empty">Accepted events will appear here.</p></div></section>
-      <section v-if="view==='endpoints'" class="split"><form class="panel" @submit.prevent="createEndpoint"><h3>Create endpoint</h3><label>Name<input v-model="endpointForm.name" required maxlength="100"></label><label>Public HTTPS URL<input v-model="endpointForm.url" type="url" required></label><button>Create endpoint</button><p class="muted">{{activeCount}} / 10 active endpoints</p></form><div class="cards"><article v-for="endpoint in endpoints" :key="endpoint.id"><div><h3>{{endpoint.name}}</h3><p>{{endpoint.url}}</p><code>POST /e/{{endpoint.id}}</code></div><button class="danger" @click="deleteEndpoint(endpoint.id)">Delete</button></article><p v-if="!endpoints.length" class="empty">Create the first webhook endpoint.</p></div></section>
-      <section v-if="view==='keys'" class="split"><form class="panel" @submit.prevent="createKey"><h3>Create API key</h3><label>Name<input v-model="keyName" required maxlength="100"></label><button>Create key</button><p class="muted">API keys start with <code>pj_oss_</code>.</p></form><div class="cards"><article v-for="key in keys" :key="key.id"><div><h3>{{key.name}}</h3><code>{{key.prefix}}…</code><p>Last used: {{key.last_used_at?new Date(key.last_used_at).toLocaleString():'Never'}}</p></div><button class="danger" @click="deleteKey(key.id)">Revoke</button></article></div></section>
-    </main>
-  </div>
+  <LoginView v-if="!token" :error="sessionError" :loading="sessionLoading" @login="signIn" />
+  <AppShell v-else :view="view" :version="relay.system.value?.version" :telemetry="relay.system.value?.telemetry.enabled ?? false" @navigate="view=$event" @refresh="relay.refresh" @logout="signOut">
+    <p v-if="relay.error.value" class="error banner" role="alert">{{ relay.error.value }}</p>
+    <SecretNotice v-if="relay.secret.value" :secret="relay.secret.value" @dismiss="relay.clearSecret" />
+    <OverviewView v-if="view==='overview'" :system="relay.system.value" :destinations="relay.destinations.value" :events="relay.events.value" @navigate="view=$event" />
+    <DestinationsView v-else-if="view==='destinations'" :destinations="relay.destinations.value" @create="relay.createDestination" @toggle="relay.updateDestination" @test="relay.testDestination" @rotate="relay.rotateSecret" @finish-rotation="relay.finishRotation" @remove="relay.deleteDestination" />
+    <EventsView v-else-if="view==='events'" :events="relay.events.value" :selected="relay.selectedEvent.value" @inspect="relay.inspectEvent" @replay="relay.replayEvent" @close="relay.clearSelectedEvent" />
+    <KeysView v-else-if="view==='keys'" :keys="relay.keys.value" :destinations="relay.destinations.value" @create="relay.createKey" @revoke="relay.revokeKey" />
+    <SystemView v-else :system="relay.system.value" />
+  </AppShell>
 </template>

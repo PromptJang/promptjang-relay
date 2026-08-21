@@ -1,15 +1,11 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
 use url::Url;
 
+use crate::config::Config;
 use crate::domain::DomainError;
-
-pub const MAX_ENDPOINTS: i64 = 10;
-pub const MAX_KEYS: i64 = 5;
-pub const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
-pub const PER_MINUTE_EVENTS: i64 = 1000;
 
 pub fn validate_name(value: &str) -> Result<(), DomainError> {
     if value.trim().is_empty() || value.len() > 100 {
@@ -50,42 +46,75 @@ pub fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, DomainErro
     }
 }
 
-pub fn ensure_payload_size(size: usize) -> Result<(), DomainError> {
-    if size > MAX_PAYLOAD_BYTES {
-        Err(DomainError::payload_too_large("payload exceeds 256 KB"))
+pub fn ensure_payload_size(size: usize, maximum: usize) -> Result<(), DomainError> {
+    if size > maximum {
+        Err(DomainError::payload_too_large(format!(
+            "payload exceeds configured maximum of {maximum} bytes"
+        )))
     } else {
         Ok(())
     }
 }
 
-pub async fn validate_public_https(raw: &str) -> Result<(), DomainError> {
+pub async fn validate_destination_url(raw: &str, config: &Config) -> Result<(), DomainError> {
+    resolve_destination(raw, config).await.map(|_| ())
+}
+
+pub async fn resolve_destination(
+    raw: &str,
+    config: &Config,
+) -> Result<(Url, String, SocketAddr), DomainError> {
     let url = Url::parse(raw).map_err(|_| DomainError::bad_request("invalid endpoint URL"))?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return Err(DomainError::bad_request(
-            "endpoint must be a public HTTPS URL without credentials",
+            "destination must be an HTTP(S) URL without embedded credentials",
         ));
     }
     let host = url
         .host_str()
-        .ok_or_else(|| DomainError::bad_request("endpoint host is required"))?;
-    if host.eq_ignore_ascii_case("localhost") {
-        return Err(DomainError::bad_request(
-            "private endpoint hosts are not allowed",
-        ));
-    }
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = tokio::net::lookup_host((host, port))
+        .ok_or_else(|| DomainError::bad_request("endpoint host is required"))?
+        .to_string();
+    let port = url
+        .port_or_known_default()
+        .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
+    let addresses = tokio::net::lookup_host((host.as_str(), port))
         .await
         .map_err(|_| DomainError::bad_request("endpoint host could not be resolved"))?;
-    if addresses
-        .into_iter()
-        .any(|address| !is_public_ip(address.ip()))
-    {
+    let addresses = addresses.map(|address| address.ip()).collect::<Vec<_>>();
+    if addresses.is_empty() {
         return Err(DomainError::bad_request(
-            "private endpoint addresses are not allowed",
+            "destination host has no addresses",
         ));
     }
-    Ok(())
+    let mut selected = None;
+    for address in addresses {
+        let private = !is_public_ip(address);
+        if private
+            && !config
+                .allow_private_cidrs
+                .iter()
+                .any(|cidr| cidr.contains(&address))
+        {
+            return Err(DomainError::bad_request(
+                "private destination address is not allowlisted",
+            ));
+        }
+        if url.scheme() == "http" && (!private || !config.allow_insecure_http) {
+            return Err(DomainError::bad_request(
+                "HTTP is allowed only for allowlisted private destinations when PJ_ALLOW_INSECURE_HTTP=true",
+            ));
+        }
+        selected.get_or_insert(SocketAddr::new(address, port));
+    }
+    Ok((
+        url,
+        host,
+        selected
+            .ok_or_else(|| DomainError::bad_request("destination host has no allowed addresses"))?,
+    ))
 }
 
 fn is_public_ip(ip: IpAddr) -> bool {
@@ -112,8 +141,18 @@ fn is_public_ip(ip: IpAddr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::domain::ErrorKind;
     use axum::http::HeaderValue;
+
+    fn test_config() -> Config {
+        Config::from_reader(|key| match key {
+            "DATABASE_URL" => Some("postgres://localhost/relay".into()),
+            "PJ_ENCRYPTION_KEY" => Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
+            _ => None,
+        })
+        .expect("test configuration")
+    }
 
     #[test]
     fn extract_header_keeps_short_non_empty_values() {
@@ -226,13 +265,13 @@ mod tests {
     }
 
     #[test]
-    fn payload_size_allows_up_to_256_kib() {
+    fn payload_size_allows_up_to_one_mib() {
         // Arrange
-        let sizes = [0, 256 * 1024];
+        let sizes = [0, 1024 * 1024];
 
         for size in sizes {
             // Act
-            let result = ensure_payload_size(size);
+            let result = ensure_payload_size(size, 1024 * 1024);
 
             // Assert
             assert_eq!(result, Ok(()));
@@ -240,12 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn payload_size_rejects_over_256_kib() {
+    fn payload_size_rejects_over_one_mib() {
         // Arrange
-        let size = 256 * 1024 + 1;
+        let size = 1024 * 1024 + 1;
 
         // Act
-        let result = ensure_payload_size(size);
+        let result = ensure_payload_size(size, 1024 * 1024);
 
         // Assert
         assert_eq!(result.unwrap_err().kind, ErrorKind::PayloadTooLarge);
@@ -297,7 +336,8 @@ mod tests {
         let raw = "https://example.com/hook";
 
         // Act
-        let result = validate_public_https(raw).await;
+        let config = test_config();
+        let result = validate_destination_url(raw, &config).await;
 
         // Assert
         assert_eq!(result, Ok(()));
@@ -315,7 +355,7 @@ mod tests {
 
         for raw in cases {
             // Act
-            let result = validate_public_https(raw).await;
+            let result = validate_destination_url(raw, &test_config()).await;
 
             // Assert
             assert_eq!(
@@ -336,7 +376,7 @@ mod tests {
 
         for raw in cases {
             // Act
-            let result = validate_public_https(raw).await;
+            let result = validate_destination_url(raw, &test_config()).await;
 
             // Assert
             assert_eq!(
