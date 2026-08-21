@@ -131,12 +131,7 @@ async fn list_endpoints(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    let endpoints = sqlx::query_as::<_, EndpointView>(
-        "SELECT id,name,url,enabled,created_at,updated_at FROM endpoints ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(internal)?;
+    let endpoints = crate::store::endpoints::list(&state.pool).await?;
     Ok(Json(json!({"endpoints":endpoints})))
 }
 
@@ -155,26 +150,10 @@ async fn create_endpoint(
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
     crate::domain::validation::validate_public_https(&input.url).await?;
-    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM endpoints")
-        .fetch_one(&state.pool)
-        .await
-        .map_err(internal)?;
-    if count >= MAX_ENDPOINTS {
-        return Err(conflict("endpoint limit reached (10)"));
-    }
-    let id = Uuid::new_v4();
     let secret = crate::domain::secrets::new_secret("whsec_");
-    sqlx::query(
-        "INSERT INTO endpoints (id,name,url,signing_secret,enabled) VALUES ($1,$2,$3,$4,$5)",
-    )
-    .bind(id)
-    .bind(input.name)
-    .bind(input.url)
-    .bind(&secret)
-    .bind(input.enabled.unwrap_or(true))
-    .execute(&state.pool)
-    .await
-    .map_err(internal)?;
+    let (id, secret) =
+        crate::store::endpoints::create(&state.pool, input.name, input.url, secret, input.enabled.unwrap_or(true))
+            .await?;
     Ok((StatusCode::CREATED, Json(json!({"id":id,"secret":secret}))))
 }
 
@@ -187,11 +166,7 @@ async fn update_endpoint(
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
     crate::domain::validation::validate_public_https(&input.url).await?;
-    let changed=sqlx::query("UPDATE endpoints SET name=$2,url=$3,enabled=COALESCE($4,enabled),updated_at=now() WHERE id=$1")
-        .bind(id).bind(input.name).bind(input.url).bind(input.enabled).execute(&state.pool).await.map_err(internal)?.rows_affected();
-    if changed == 0 {
-        return Err(not_found("endpoint not found"));
-    }
+    crate::store::endpoints::update(&state.pool, id, input.name, input.url, input.enabled).await?;
     Ok(Json(json!({"updated":true})))
 }
 
@@ -201,15 +176,7 @@ async fn delete_endpoint(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     session(&headers, &state.pool).await?;
-    let changed = sqlx::query("DELETE FROM endpoints WHERE id=$1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .map_err(internal)?
-        .rows_affected();
-    if changed == 0 {
-        return Err(not_found("endpoint not found"));
-    }
+    crate::store::endpoints::delete(&state.pool, id).await?;
     Ok(Json(json!({"deleted":true})))
 }
 
