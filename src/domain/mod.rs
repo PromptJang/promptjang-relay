@@ -1,3 +1,4 @@
+pub mod delivery;
 pub mod error;
 pub mod models;
 pub mod validation;

@@ -1,16 +1,13 @@
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
-use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde_json::Value;
-use sha2::Sha256;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
-const RETRY_DELAYS: [i64; 5] = [60, 120, 240, 480, 960];
-const MAX_RESPONSE_BYTES: usize = 10_240;
+use crate::domain::delivery::{fallback_delay, retry_delay, signature, truncate_body};
 
 #[derive(FromRow)]
 struct DeliveryJob {
@@ -28,20 +25,6 @@ struct Destination {
     url: String,
     signing_secret: String,
     enabled: bool,
-}
-
-pub fn retry_delay(retry_count: i32) -> Option<i64> {
-    RETRY_DELAYS.get(retry_count.max(0) as usize).copied()
-}
-
-pub fn signature(secret: &str, timestamp: i64, payload: &[u8]) -> String {
-    let mut signed = timestamp.to_string().into_bytes();
-    signed.push(b'.');
-    signed.extend_from_slice(payload);
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts arbitrary key lengths");
-    mac.update(&signed);
-    hex::encode(mac.finalize().into_bytes())
 }
 
 pub async fn run(pool: PgPool, client: Client) {
@@ -100,13 +83,12 @@ async fn process_one(pool: &PgPool, client: &Client) -> Result<bool> {
     let payload = serde_json::to_vec(&job.payload)?;
     let timestamp = Utc::now().timestamp();
     let started = Instant::now();
+    let signed = signature(&destination.signing_secret, timestamp, &payload)
+        .context("sign payload for delivery")?;
     let mut request = client
         .post(&destination.url)
         .header("Content-Type", "application/json")
-        .header(
-            "X-PromptJang-Signature",
-            signature(&destination.signing_secret, timestamp, &payload),
-        )
+        .header("X-PromptJang-Signature", signed)
         .header("X-PromptJang-Timestamp", timestamp)
         .header("X-PromptJang-Event-ID", job.id.to_string())
         .body(payload);
@@ -120,8 +102,7 @@ async fn process_one(pool: &PgPool, client: &Client) -> Result<bool> {
     match request.send().await {
         Ok(response) => {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            let body = truncate(body);
+            let body = truncate_body(response.text().await.unwrap_or_default());
             let duration = started.elapsed().as_millis() as i64;
             if status.is_success() {
                 sqlx::query("INSERT INTO delivery_attempts (id,event_id,status_code,response_body,duration_ms) VALUES ($1,$2,$3,$4,$5)")
@@ -167,7 +148,7 @@ async fn fail(
     sqlx::query("INSERT INTO delivery_attempts (id,event_id,status_code,response_body,duration_ms,error) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(Uuid::new_v4()).bind(job.id).bind(status).bind(body).bind(duration).bind(error).execute(&mut *tx).await?;
     if job.retry_count < job.max_retries {
-        let delay = retry_delay(job.retry_count).unwrap_or(960);
+        let delay = retry_delay(job.retry_count).unwrap_or_else(fallback_delay);
         sqlx::query("UPDATE events SET status='RETRYING', retry_count=retry_count+1, next_attempt_at=now()+make_interval(secs => $2), last_error=$3, updated_at=now() WHERE id=$1")
             .bind(job.id).bind(delay as f64).bind(error).execute(&mut *tx).await?;
     } else {
@@ -185,42 +166,10 @@ async fn fail(
 
 async fn recover_stuck(pool: &PgPool) -> Result<()> {
     sqlx::query("UPDATE events SET status='RETRYING', next_attempt_at=now(), last_error='recovered after interrupted delivery', updated_at=now() WHERE status='PROCESSING' AND updated_at < now() - interval '5 minutes'")
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
     sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
         .execute(pool)
         .await?;
     Ok(())
-}
-
-fn truncate(body: String) -> String {
-    if body.len() <= MAX_RESPONSE_BYTES {
-        return body;
-    }
-    let mut boundary = MAX_RESPONSE_BYTES;
-    while !body.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    format!("{}[truncated]", &body[..boundary])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fixed_retry_schedule_matches_cloud() {
-        assert_eq!(
-            (0..5).filter_map(retry_delay).collect::<Vec<_>>(),
-            vec![60, 120, 240, 480, 960]
-        );
-        assert_eq!(retry_delay(5), None);
-    }
-
-    #[test]
-    fn signing_fixture_is_stable() {
-        assert_eq!(
-            signature("whsec_fixture", 1700000000, br#"{"ok":true}"#),
-            "31a99e5c88be4311395a895ea0d686baf164714d49a52bae17fad334b78db984"
-        );
-    }
 }
