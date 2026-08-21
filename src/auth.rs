@@ -1,12 +1,10 @@
 use anyhow::{Context, Result, bail};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use axum::http::HeaderMap;
-use rand::{RngCore, rngs::OsRng};
-use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{config::Config, domain::validation::bearer_token};
+use crate::domain::secrets::{hash_password, hash_secret};
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
@@ -26,7 +24,7 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     if password.len() < 12 {
         bail!("PJ_ADMIN_PASSWORD must contain at least 12 characters");
     }
-    let password_hash = hash_password(password)?;
+    let password_hash = hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     sqlx::query("INSERT INTO owners (id, email, password_hash) VALUES ($1, $2, $3)")
         .bind(Uuid::new_v4())
         .bind(email.to_lowercase())
@@ -35,32 +33,6 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
         .await?;
     tracing::info!(email, "created the PromptJang Webhooks OSS owner");
     Ok(())
-}
-
-pub fn hash_password(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Ok(Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?
-        .to_string())
-}
-
-pub fn verify_password(password: &str, encoded: &str) -> bool {
-    PasswordHash::new(encoded).ok().is_some_and(|hash| {
-        Argon2::default()
-            .verify_password(password.as_bytes(), &hash)
-            .is_ok()
-    })
-}
-
-pub fn new_secret(prefix: &str) -> String {
-    let mut bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    format!("{prefix}{}", hex::encode(bytes))
-}
-
-pub fn hash_secret(value: &str) -> String {
-    hex::encode(Sha256::digest(value.as_bytes()))
 }
 
 

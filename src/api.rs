@@ -112,14 +112,14 @@ async fn login(
     let Some((owner_id, encoded)) = owner else {
         return Err(unauthorized("invalid credentials"));
     };
-    if !auth::verify_password(&input.password, &encoded) {
+    if !crate::domain::secrets::verify_password(&input.password, &encoded) {
         return Err(unauthorized("invalid credentials"));
     }
-    let token = auth::new_secret("pj_session_");
+    let token = crate::domain::secrets::new_secret("pj_session_");
     sqlx::query("INSERT INTO sessions (id,owner_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)")
         .bind(Uuid::new_v4())
         .bind(owner_id)
-        .bind(auth::hash_secret(&token))
+        .bind(crate::domain::secrets::hash_secret(&token))
         .bind(Utc::now() + Duration::hours(24))
         .execute(&state.pool)
         .await
@@ -164,7 +164,7 @@ async fn create_endpoint(
         return Err(conflict("endpoint limit reached (10)"));
     }
     let id = Uuid::new_v4();
-    let secret = auth::new_secret("whsec_");
+    let secret = crate::domain::secrets::new_secret("whsec_");
     sqlx::query(
         "INSERT INTO endpoints (id,name,url,signing_secret,enabled) VALUES ($1,$2,$3,$4,$5)",
     )
@@ -244,13 +244,13 @@ async fn create_key(
         return Err(conflict("API key limit reached (5)"));
     }
     let id = Uuid::new_v4();
-    let secret = auth::new_secret("pj_oss_");
+    let secret = crate::domain::secrets::new_secret("pj_oss_");
     let prefix = secret.chars().take(15).collect::<String>();
     sqlx::query("INSERT INTO api_keys (id,name,prefix,secret_hash) VALUES ($1,$2,$3,$4)")
         .bind(id)
         .bind(input.name)
         .bind(prefix)
-        .bind(auth::hash_secret(&secret))
+        .bind(crate::domain::secrets::hash_secret(&secret))
         .execute(&state.pool)
         .await
         .map_err(internal)?;
@@ -348,7 +348,7 @@ async fn ingest(
     }
     let payload_hash = hex::encode(Sha256::digest(&body));
     let idempotency = crate::domain::validation::idempotency_key(&headers)?;
-    let key_hash = idempotency.as_deref().map(auth::hash_secret);
+    let key_hash = idempotency.as_deref().map(crate::domain::secrets::hash_secret);
     let mut tx = state.pool.begin().await.map_err(internal)?;
     if let Some(ref hash) = key_hash {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
