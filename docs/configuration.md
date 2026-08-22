@@ -5,7 +5,8 @@
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `PJ_ENCRYPTION_KEY` | required | Base64-encoded 32-byte AES-GCM key |
 | `PJ_ADMIN_EMAIL` | first start | Bootstrap owner email |
-| `PJ_ADMIN_PASSWORD` | first start | Bootstrap password, at least 12 characters |
+| `PJ_ADMIN_PASSWORD` | every start | Owner password; at least 12 characters (1 with `PJ_ALLOW_WEAK_PASSWORD=true`). Re-applied on startup when it differs, revoking existing sessions |
+| `PJ_ALLOW_WEAK_PASSWORD` | `false` | Local development only: allow short passwords and owner re-bootstrap on every startup |
 | `PJ_MAX_PAYLOAD_BYTES` | `1048576` | Accepted body maximum |
 | `PJ_RATE_LIMIT_PER_DESTINATION_PER_MINUTE` | `10000` | Per-destination safeguard; `0` disables |
 | `PJ_EVENT_RETENTION_DAYS` | `30` | Terminal event retention; `0` retains forever |

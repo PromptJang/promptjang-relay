@@ -23,32 +23,39 @@ fn dummy_password_hash() -> Result<&'static str> {
 }
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
-    let owner_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM owners)")
-        .fetch_one(pool)
-        .await?;
-    if owner_exists {
-        return Ok(());
-    }
     let email = config
         .admin_email
         .as_deref()
-        .context("PJ_ADMIN_EMAIL is required on first startup")?;
+        .context("PJ_ADMIN_EMAIL is required on first startup")?
+        .to_lowercase();
     let password = config
         .admin_password
         .as_deref()
         .context("PJ_ADMIN_PASSWORD is required on first startup")?;
-    if password.len() < 12 {
-        bail!("PJ_ADMIN_PASSWORD must contain at least 12 characters");
+    let min_len = if config.allow_weak_password { 1 } else { 12 };
+    if password.len() < min_len {
+        bail!("PJ_ADMIN_PASSWORD must contain at least {min_len} characters");
     }
     let password_hash =
         hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    sqlx::query("INSERT INTO owners (id,email,password_hash) VALUES ($1,$2,$3)")
-        .bind(Uuid::new_v4())
-        .bind(email.to_lowercase())
-        .bind(password_hash)
-        .execute(pool)
-        .await?;
-    tracing::info!(email, "created the PromptJang Relay owner");
+    let changed = sqlx::query(
+        "INSERT INTO owners (id,email,password_hash) VALUES ($1,$2,$3)
+         ON CONFLICT (email) DO UPDATE SET password_hash=$3
+         WHERE owners.password_hash IS DISTINCT FROM $3
+         RETURNING id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(&email)
+    .bind(&password_hash)
+    .fetch_optional(pool)
+    .await?;
+    if changed.is_some() {
+        sqlx::query("DELETE FROM sessions WHERE owner_id=(SELECT id FROM owners WHERE email=$1)")
+            .bind(&email)
+            .execute(pool)
+            .await?;
+        tracing::info!(email, "set the PromptJang Relay owner credentials");
+    }
     Ok(())
 }
 

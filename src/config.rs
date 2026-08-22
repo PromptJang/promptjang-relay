@@ -23,6 +23,7 @@ pub struct Config {
     pub session_ttl_seconds: i64,
     pub allow_private_cidrs: Vec<IpNet>,
     pub allow_insecure_http: bool,
+    pub allow_weak_password: bool,
     pub extra_ca_cert_path: Option<String>,
     pub otel_enabled: bool,
 }
@@ -93,6 +94,7 @@ impl Config {
             session_ttl_seconds: parse("PJ_SESSION_TTL_SECONDS", "86400")?.parse()?,
             allow_private_cidrs,
             allow_insecure_http: bool_value("PJ_ALLOW_INSECURE_HTTP", false),
+            allow_weak_password: bool_value("PJ_ALLOW_WEAK_PASSWORD", false),
             extra_ca_cert_path: read("PJ_EXTRA_CA_CERT_PATH"),
             otel_enabled,
         })
