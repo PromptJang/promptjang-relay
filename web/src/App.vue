@@ -4,6 +4,7 @@ import AppShell from './components/AppShell.vue'
 import LoginView from './components/LoginView.vue'
 import SecretNotice from './components/SecretNotice.vue'
 import { useRelayApi } from './composables/useRelayApi'
+import { useTheme } from './composables/useTheme'
 import { useRelayData } from './composables/useRelayData'
 import DestinationsView from './views/DestinationsView.vue'
 import EventsView from './views/EventsView.vue'
@@ -17,6 +18,7 @@ const sessionError = shallowRef('')
 const sessionLoading = shallowRef(false)
 const { token, request, login, logout } = useRelayApi()
 const relay = useRelayData(request)
+const { theme, set: setTheme } = useTheme()
 
 async function signIn(email: string, password: string) {
   sessionLoading.value = true
@@ -31,7 +33,7 @@ onMounted(() => { if (token.value) void relay.refresh() })
 
 <template>
   <LoginView v-if="!token" :error="sessionError" :loading="sessionLoading" @login="signIn" />
-  <AppShell v-else :view="view" :version="relay.system.value?.version" :telemetry="relay.system.value?.telemetry.enabled ?? false" @navigate="view=$event" @refresh="relay.refresh" @logout="signOut">
+  <AppShell v-else :view="view" :version="relay.system.value?.version" :telemetry="relay.system.value?.telemetry.enabled ?? false" :theme="theme" @set-theme="setTheme" @navigate="view=$event" @refresh="relay.refresh" @logout="signOut">
     <p v-if="relay.error.value" class="error banner" role="alert">{{ relay.error.value }}</p>
     <SecretNotice v-if="relay.secret.value" :secret="relay.secret.value" @dismiss="relay.clearSecret" />
     <OverviewView v-if="view==='overview'" :system="relay.system.value" :destinations="relay.destinations.value" :events="relay.events.value" @navigate="view=$event" />
