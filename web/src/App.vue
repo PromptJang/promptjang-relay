@@ -20,10 +20,10 @@ const { token, request, login, logout } = useRelayApi()
 const relay = useRelayData(request)
 const { theme, set: setTheme } = useTheme()
 
-async function signIn(email: string, password: string) {
+async function signIn(username: string, password: string) {
   sessionLoading.value = true
   sessionError.value = ''
-  try { await login(email, password); await relay.refresh() }
+  try { await login(username, password); await relay.refresh() }
   catch (cause) { sessionError.value = cause instanceof Error ? cause.message : 'Login failed' }
   finally { sessionLoading.value = false }
 }

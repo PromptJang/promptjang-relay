@@ -17,10 +17,10 @@ export function useRelayApi() {
     return body as T
   }
 
-  async function login(email: string, password: string) {
+  async function login(username: string, password: string) {
     const data = await request<{ token: string }>('/api/v1/session', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     })
     token.value = data.token
     sessionStorage.setItem('pj_session', data.token)
