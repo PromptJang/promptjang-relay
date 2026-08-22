@@ -7,7 +7,7 @@ use std::env;
 pub struct Config {
     pub database_url: String,
     pub bind: String,
-    pub admin_email: Option<String>,
+    pub admin_username: Option<String>,
     pub admin_password: Option<String>,
     pub static_dir: String,
     pub encryption_key: [u8; 32],
@@ -77,7 +77,7 @@ impl Config {
         Ok(Self {
             database_url,
             bind: read("PJ_BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
-            admin_email: read("PJ_ADMIN_EMAIL"),
+            admin_username: read("PJ_ADMIN_USERNAME").or_else(|| read("PJ_ADMIN_EMAIL")),
             admin_password: read("PJ_ADMIN_PASSWORD"),
             static_dir: read("PJ_STATIC_DIR").unwrap_or_else(|| "web/dist".into()),
             encryption_key,
@@ -136,7 +136,7 @@ mod tests {
         // Assert
         assert_eq!(config.bind, "0.0.0.0:8080");
         assert_eq!(config.static_dir, "web/dist");
-        assert_eq!(config.admin_email, None);
+        assert_eq!(config.admin_username, None);
         assert_eq!(config.admin_password, None);
         assert_eq!(config.max_payload_bytes, 1_048_576);
         assert_eq!(config.rate_limit_per_minute, 10_000);
@@ -149,7 +149,7 @@ mod tests {
         let reader = |key: &str| match key {
             "DATABASE_URL" => Some("postgres://db/promptjang".into()),
             "PJ_BIND" => Some("127.0.0.1:9000".into()),
-            "PJ_ADMIN_EMAIL" => Some("owner@example.com".into()),
+            "PJ_ADMIN_USERNAME" => Some("owner".into()),
             "PJ_ADMIN_PASSWORD" => Some("at-least-twelve".into()),
             "PJ_ENCRYPTION_KEY" => Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
             _ => None,
@@ -160,7 +160,7 @@ mod tests {
 
         // Assert
         assert_eq!(config.bind, "127.0.0.1:9000");
-        assert_eq!(config.admin_email.as_deref(), Some("owner@example.com"));
+        assert_eq!(config.admin_username.as_deref(), Some("owner"));
         assert_eq!(config.admin_password.as_deref(), Some("at-least-twelve"));
     }
 

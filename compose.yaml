@@ -20,7 +20,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://promptjang:${PJ_POSTGRES_PASSWORD:-local_promptjang_password}@postgres:5432/promptjang
-      PJ_ADMIN_EMAIL: ${PJ_ADMIN_EMAIL:?Set PJ_ADMIN_EMAIL}
+      PJ_ADMIN_USERNAME: ${PJ_ADMIN_USERNAME:-admin}
       PJ_ADMIN_PASSWORD: ${PJ_ADMIN_PASSWORD:?Set PJ_ADMIN_PASSWORD}
       PJ_ENCRYPTION_KEY: ${PJ_ENCRYPTION_KEY:?Set PJ_ENCRYPTION_KEY}
       PJ_MAX_PAYLOAD_BYTES: ${PJ_MAX_PAYLOAD_BYTES:-1048576}

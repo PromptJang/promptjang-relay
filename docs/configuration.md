@@ -4,7 +4,7 @@
 |---|---:|---|
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `PJ_ENCRYPTION_KEY` | required | Base64-encoded 32-byte AES-GCM key |
-| `PJ_ADMIN_EMAIL` | first start | Bootstrap owner email |
+| `PJ_ADMIN_USERNAME` | every start | Owner username (`PJ_ADMIN_EMAIL` accepted as a deprecated fallback) |
 | `PJ_ADMIN_PASSWORD` | every start | Owner password; at least 12 characters (1 with `PJ_ALLOW_WEAK_PASSWORD=true`). Re-applied on startup when it differs, revoking existing sessions |
 | `PJ_ALLOW_WEAK_PASSWORD` | `false` | Local development only: allow short passwords and owner re-bootstrap on every startup |
 | `PJ_MAX_PAYLOAD_BYTES` | `1048576` | Accepted body maximum |

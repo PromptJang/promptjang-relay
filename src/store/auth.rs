@@ -23,10 +23,10 @@ fn dummy_password_hash() -> Result<&'static str> {
 }
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
-    let email = config
-        .admin_email
+    let username = config
+        .admin_username
         .as_deref()
-        .context("PJ_ADMIN_EMAIL is required on first startup")?
+        .context("PJ_ADMIN_USERNAME is required on first startup")?
         .to_lowercase();
     let password = config
         .admin_password
@@ -39,57 +39,60 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     let password_hash =
         hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let changed = sqlx::query(
-        "INSERT INTO owners (id,email,password_hash) VALUES ($1,$2,$3)
-         ON CONFLICT (email) DO UPDATE SET password_hash=$3
+        "INSERT INTO owners (id,username,password_hash) VALUES ($1,$2,$3)
+         ON CONFLICT (username) DO UPDATE SET password_hash=$3
          WHERE owners.password_hash IS DISTINCT FROM $3
          RETURNING id",
     )
     .bind(Uuid::new_v4())
-    .bind(&email)
+    .bind(&username)
     .bind(&password_hash)
     .fetch_optional(pool)
     .await?;
     if changed.is_some() {
-        sqlx::query("DELETE FROM sessions WHERE owner_id=(SELECT id FROM owners WHERE email=$1)")
-            .bind(&email)
-            .execute(pool)
-            .await?;
-        tracing::info!(email, "set the PromptJang Relay owner credentials");
+        sqlx::query(
+            "DELETE FROM sessions WHERE owner_id=(SELECT id FROM owners WHERE username=$1)",
+        )
+        .bind(&username)
+        .execute(pool)
+        .await?;
+        tracing::info!(username, "set the PromptJang Relay owner credentials");
     }
     Ok(())
 }
 
-pub async fn verify_login(pool: &PgPool, email: &str, password: &str) -> Result<Option<Uuid>> {
-    let email_hash = hash_secret(&email.to_lowercase());
+pub async fn verify_login(pool: &PgPool, username: &str, password: &str) -> Result<Option<Uuid>> {
+    let username_hash = hash_secret(&username.to_lowercase());
     let blocked = sqlx::query_scalar::<_, bool>(
-        "SELECT COALESCE(blocked_until > now(),false) FROM login_attempts WHERE email_hash=$1",
+        "SELECT COALESCE(blocked_until > now(),false) FROM login_attempts WHERE username_hash=$1",
     )
-    .bind(&email_hash)
+    .bind(&username_hash)
     .fetch_optional(pool)
     .await?
     .unwrap_or(false);
     if blocked {
         return Ok(None);
     }
-    let owner =
-        sqlx::query_as::<_, (Uuid, String)>("SELECT id,password_hash FROM owners WHERE email=$1")
-            .bind(email.to_lowercase())
-            .fetch_optional(pool)
-            .await?;
+    let owner = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id,password_hash FROM owners WHERE username=$1",
+    )
+    .bind(username.to_lowercase())
+    .fetch_optional(pool)
+    .await?;
     let fallback = dummy_password_hash()?;
     let verified = owner.as_ref().map_or_else(
         || crate::domain::secrets::verify_password(password, fallback),
         |(_, encoded)| crate::domain::secrets::verify_password(password, encoded),
     );
     if verified {
-        sqlx::query("DELETE FROM login_attempts WHERE email_hash=$1")
-            .bind(email_hash)
+        sqlx::query("DELETE FROM login_attempts WHERE username_hash=$1")
+            .bind(username_hash)
             .execute(pool)
             .await?;
         return Ok(owner.map(|(id, _)| id));
     }
-    sqlx::query("INSERT INTO login_attempts(email_hash,failed_count,window_started_at,blocked_until) VALUES($1,1,now(),NULL) ON CONFLICT(email_hash) DO UPDATE SET failed_count=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN 1 ELSE login_attempts.failed_count+1 END, window_started_at=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END, blocked_until=CASE WHEN login_attempts.failed_count+1>=5 THEN now()+interval '15 minutes' ELSE login_attempts.blocked_until END")
-        .bind(email_hash).execute(pool).await?;
+    sqlx::query("INSERT INTO login_attempts(username_hash,failed_count,window_started_at,blocked_until) VALUES($1,1,now(),NULL) ON CONFLICT(username_hash) DO UPDATE SET failed_count=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN 1 ELSE login_attempts.failed_count+1 END, window_started_at=CASE WHEN login_attempts.window_started_at < now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END, blocked_until=CASE WHEN login_attempts.failed_count+1>=5 THEN now()+interval '15 minutes' ELSE login_attempts.blocked_until END")
+        .bind(username_hash).execute(pool).await?;
     Ok(None)
 }
 
