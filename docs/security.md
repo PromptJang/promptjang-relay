@@ -2,13 +2,19 @@
 
 Relay is designed for one trusted team. Put the UI and administration API behind TLS and network access controls. A reverse proxy may provide SSO, but Relay v0.2 still uses its local owner session.
 
+**Secrets at rest**
+
 - Signing secrets are AES-GCM encrypted with `PJ_ENCRYPTION_KEY`.
 - API keys and sessions are stored only as SHA-256 hashes; owner passwords use Argon2id.
-- Store the encryption key, bootstrap password, database password, and OTLP headers in a secret manager.
-- Back up the encryption key separately. Losing it makes destination secrets unrecoverable.
-- Public HTTPS destinations work by default. Private addresses require explicit CIDRs and are revalidated before delivery.
-- HTTP is limited to allowlisted private destinations and requires `PJ_ALLOW_INSECURE_HTTP=true`.
-- Redirects are disabled. Embedded URL credentials are rejected.
-- Relay never records or exports payloads, authorization headers, cookies, secrets, encryption keys, database credentials, or OTLP authorization headers as telemetry.
-- Receivers must verify signatures and tolerate duplicate delivery.
+- Keep the encryption key, bootstrap password, and database password in a secret manager; back the key up separately — losing it makes destination secrets unrecoverable.
 
+**Destination restrictions**
+
+- Public HTTPS destinations work by default.
+- Private addresses require explicit CIDR configuration and are revalidated before every delivery.
+- HTTP is limited to allowlisted private destinations and requires `PJ_ALLOW_INSECURE_HTTP=true`.
+- Redirects are disabled; embedded URL credentials are rejected.
+
+**Telemetry**
+
+Payload bodies, authorization headers, cookies, secrets, encryption keys, database credentials, and OTLP authorization headers are never recorded or exported. Receivers must verify signatures and tolerate duplicate delivery.

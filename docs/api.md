@@ -1,35 +1,50 @@
 # Relay API and signing
 
-The stable API uses `/api/v1` for administration and `/v1/destinations/:id/events` for ingestion. v0.1 `/api/*`, `/api/endpoints`, and `/e/:id` routes remain deprecated aliases through v1.0 and include a `Deprecation` response header.
+The stable API uses `/api/v1` for administration and `/v1/destinations/:id/events` for ingestion. v0.1 `/api/*` and `/e/:id` routes remain deprecated aliases through v1.0 and send a `Deprecation` response header.
 
 ## Routes
 
-- `POST|DELETE /api/v1/session`
-- `GET|POST /api/v1/destinations`
-- `PATCH|DELETE /api/v1/destinations/:id`
-- `POST /api/v1/destinations/:id/signing-secret/rotate`
-- `DELETE /api/v1/destinations/:id/signing-secret/previous`
-- `POST /api/v1/destinations/:id/test`
-- `GET|POST /api/v1/keys`
-- `DELETE /api/v1/keys/:id`
-- `GET /api/v1/events?cursor=&destination_id=&status=&event_type=&limit=`
-- `GET /api/v1/events/:id`
-- `POST /api/v1/events/:id/replay`
-- `GET /api/v1/system`
-- `POST /v1/destinations/:id/events`
+| Area | Routes |
+|---|---|
+| Session | `POST /api/v1/session` · `DELETE /api/v1/session` |
+| Destinations | `GET|POST /api/v1/destinations` · `GET|PATCH|DELETE /api/v1/destinations/:id` |
+| Secret rotation | `POST …/:id/signing-secret/rotate` · `DELETE …/:id/signing-secret/previous` |
+| Test delivery | `POST …/:id/test` |
+| API keys | `GET|POST /api/v1/keys` · `DELETE /api/v1/keys/:id` |
+| Events | `GET /api/v1/events?cursor=&destination_id=&status=&event_type=&limit=` · `GET /api/v1/events/:id` · `POST /api/v1/events/:id/replay` |
+| System | `GET /api/v1/system` |
+| Ingestion | `POST /v1/destinations/:id/events` |
 
 API keys are unrestricted when `destination_ids` is empty, or restricted to the listed destinations.
 
+## Ingest
+
+```bash
+curl -X POST "http://localhost:8080/v1/destinations/$DEST_ID/events" \
+  -H "Authorization: Bearer pj_relay_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-1042" \
+  -H "X-Event-Type: order.created" \
+  -d '{"order_id":"1042"}'
+```
+
+Returns `202` after PostgreSQL commits the payload and `QUEUED` state.
+
 ## Idempotency
 
-`Idempotency-Key` is optional and scoped to one destination. The same key and exact payload bytes return the original event. Different bytes return `409`. Retries and replay do not change this record.
+`Idempotency-Key` is optional and scoped to one destination. Same key + exact payload bytes returns the original event; different bytes return `409`. Retries and replay never change this record.
 
 ## Signature verification
 
-Construct `timestamp + "." + raw_request_body`, compute HMAC-SHA256 using the destination signing secret, and compare the lowercase hexadecimal result to `X-PromptJang-Signature` using a constant-time comparison. Reject timestamps outside your chosen replay window.
+```ts
+const signed = `${timestamp}.${rawBody}`                       // X-PromptJang-Timestamp + exact request bytes
+const expected = hmacSha256(signingSecret, signed).hex()        // lowercase hex
+timingSafeEqual(expected, req.header("X-PromptJang-Signature")) // constant-time compare
+reject(Math.abs(now() - timestamp * 1000) > replayWindow)
+```
 
-After secret rotation, Relay also sends `X-PromptJang-Previous-Signature` using the prior secret. Receivers may accept either signature during migration, then remove the old secret after all retries signed during the transition have completed.
+After rotation, Relay also sends `X-PromptJang-Previous-Signature` signed with the prior secret. Accept either during migration; remove the old secret once in-flight retries have drained.
 
 ## Retry and replay
 
-Any non-2xx response or network failure schedules the next configured retry. A successful 2xx response ends delivery. When the retry budget is exhausted the event becomes `EXPIRED`; replay creates a new linked event with its own stable ID. A receiver can see the same event ID more than once if it accepted a request but Relay stopped before recording the result.
+Any non-2xx response or network failure schedules the next configured retry; a 2xx ends delivery. When the retry budget is exhausted the event becomes `EXPIRED`. Replay creates a new linked event with its own stable ID. Delivery is at-least-once — verify signatures and tolerate duplicates.

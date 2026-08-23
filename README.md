@@ -57,13 +57,12 @@ When enabled, Relay exports traces, metrics, and logs through OTLP/HTTP while co
 
 ## Documentation
 
-- [API and signing](docs/api.md)
-- [Configuration](docs/configuration.md)
+- [API, signing, and idempotency](docs/api.md)
+- [Configuration reference](docs/configuration.md)
 - [OpenTelemetry and OTLP vendors](docs/observability.md)
-- [External PostgreSQL deployment](docs/deployment.md)
 - [Security and private networks](docs/security.md)
-- [Operations, backup, and recovery](docs/operations.md)
-- [Upgrade from v0.1](docs/migration-v01-v02.md)
+- [Operations: backup, upgrades, scaling, troubleshooting](docs/operations.md)
+- [Upgrading from a pre-release build](docs/migration-v01-v02.md)
 
 ## Development
 
