@@ -34,16 +34,22 @@ Returns `202` after PostgreSQL commits the payload and `QUEUED` state.
 
 `Idempotency-Key` is optional and scoped to one destination. Same key + exact payload bytes returns the original event; different bytes return `409`. Retries and replay never change this record.
 
-## Signature verification
+## Standard Webhooks signature verification
 
 ```ts
-const signed = `${timestamp}.${rawBody}`                       // X-PromptJang-Timestamp + exact request bytes
-const expected = hmacSha256(signingSecret, signed).hex()        // lowercase hex
-timingSafeEqual(expected, req.header("X-PromptJang-Signature")) // constant-time compare
-reject(Math.abs(now() - timestamp * 1000) > replayWindow)
+import { Webhook } from "standardwebhooks"
+
+const webhook = new Webhook(signingSecret)
+webhook.verify(rawBody, {
+  "webhook-id": request.headers.get("webhook-id"),
+  "webhook-timestamp": request.headers.get("webhook-timestamp"),
+  "webhook-signature": request.headers.get("webhook-signature"),
+})
 ```
 
-After rotation, Relay also sends `X-PromptJang-Previous-Signature` signed with the prior secret. Accept either during migration; remove the old secret once in-flight retries have drained.
+Relay signs the exact accepted bytes as `event_id.timestamp.payload`. The `webhook-id` stays stable across retries and changes for replay. Reject timestamps outside a five-minute tolerance and use `webhook-id` for receiver idempotency.
+
+After rotation, `webhook-signature` contains current and previous space-separated `v1` signatures. Finish the rotation after the receiver accepts the new secret and in-flight retries have drained. `X-PromptJang-Event-Type` is optional delivery metadata and is not part of the Standard Webhooks signing headers.
 
 ## Retry and replay
 

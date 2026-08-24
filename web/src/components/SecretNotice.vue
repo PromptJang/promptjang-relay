@@ -6,8 +6,9 @@ async function copy() { await navigator.clipboard.writeText(props.secret) }
 
 <template>
   <section class="secret-notice" role="status">
-    <div><strong>Copy this secret now</strong><p>It will not be shown again.</p></div>
+    <div><strong>Copy this secret now</strong><p>It will not be shown again. Use a Standard Webhooks v1 verifier at the receiver.</p></div>
     <code>{{ secret }}</code><button @click="copy">Copy</button><button class="secondary" @click="emit('dismiss')">Dismiss</button>
+    <a href="https://github.com/standard-webhooks/standard-webhooks" target="_blank" rel="noreferrer">Verification guide</a>
   </section>
 </template>
 

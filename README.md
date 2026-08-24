@@ -6,7 +6,7 @@ PromptJang Relay is an independent Apache-2.0 product for a team sending applica
 
 Relay has no billing, organizations, mailboxes, MCP, A2A, Cloudflare dependency, hosted control plane, or required telemetry.
 
-> v0.2.0 is a production beta. v0.1.0 remains available as a technical preview.
+> v0.3.0 is the current production beta. v0.2.0 remains available for receivers that have not migrated from Relay's previous signing contract.
 
 ## Quick start
 
@@ -32,7 +32,9 @@ Relay returns `202` only after PostgreSQL commits the exact request bytes and qu
 ## Delivery contract
 
 - At-least-once delivery; receivers must tolerate duplicates.
-- HMAC-SHA256 over `timestamp.raw_body` in `X-PromptJang-Signature`.
+- Standard Webhooks v1 HMAC-SHA256 over `event_id.timestamp.raw_body`.
+- Standard `webhook-id`, `webhook-timestamp`, and `webhook-signature` headers.
+- Optional `X-PromptJang-Event-Type` metadata; no Relay-specific signing headers.
 - Exact accepted bytes are delivered and signed.
 - Default retry delays: 60, 120, 240, 480, and 960 seconds.
 - Interrupted processing recovers after five minutes by default.
@@ -63,6 +65,7 @@ When enabled, Relay exports traces, metrics, and logs through OTLP/HTTP while co
 - [Security and private networks](docs/security.md)
 - [Operations: backup, upgrades, scaling, troubleshooting](docs/operations.md)
 - [Upgrading from a pre-release build](docs/migration-v01-v02.md)
+- [Upgrading from v0.2 to v0.3](docs/migration-v02-v03.md)
 
 ## Development
 

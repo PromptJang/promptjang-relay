@@ -38,7 +38,7 @@ pub async fn create_endpoint(
     session(&headers, &state.pool).await?;
     validate_name(&input.name)?;
     validate_destination_url(&input.url, &state.config).await?;
-    let signing_secret = secrets::new_secret("whsec_");
+    let signing_secret = secrets::new_webhook_secret();
     let (id, secret) = store::endpoints::create(
         &state.pool,
         &state.config.encryption_key,

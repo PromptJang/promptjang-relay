@@ -65,7 +65,7 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<(), DomainError> {
 }
 
 pub async fn rotate_secret(pool: &PgPool, key: &[u8; 32], id: Uuid) -> Result<String, DomainError> {
-    let secret = secrets::new_secret("whsec_");
+    let secret = secrets::new_webhook_secret();
     let ciphertext = secrets::encrypt_secret(key, &secret)?;
     let changed = sqlx::query("UPDATE destinations SET previous_signing_secret_ciphertext=signing_secret_ciphertext, signing_secret_ciphertext=$2, updated_at=now() WHERE id=$1 AND deleted_at IS NULL")
         .bind(id).bind(ciphertext).execute(pool).await?.rows_affected();
