@@ -8,7 +8,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::domain::delivery::signature;
+use crate::domain::delivery::signature_header;
 use crate::domain::{secrets, validation};
 use crate::telemetry;
 
@@ -19,7 +19,6 @@ struct DeliveryJob {
     payload_raw: Vec<u8>,
     content_type: String,
     event_type: Option<String>,
-    correlation_id: Option<String>,
     traceparent: Option<String>,
     tracestate: Option<String>,
     next_attempt_at: chrono::DateTime<Utc>,
@@ -37,7 +36,7 @@ struct Destination {
 
 async fn claim(pool: &PgPool) -> Result<Option<DeliveryJob>> {
     let mut tx = pool.begin().await?;
-    let job = sqlx::query_as::<_, DeliveryJob>("SELECT id,destination_id,payload_raw,content_type,event_type,correlation_id,traceparent,tracestate,next_attempt_at,retry_count,max_retries FROM events WHERE status IN('QUEUED','RETRYING') AND next_attempt_at<=now() ORDER BY next_attempt_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1")
+    let job = sqlx::query_as::<_, DeliveryJob>("SELECT id,destination_id,payload_raw,content_type,event_type,traceparent,tracestate,next_attempt_at,retry_count,max_retries FROM events WHERE status IN('QUEUED','RETRYING') AND next_attempt_at<=now() ORDER BY next_attempt_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1")
         .fetch_optional(&mut *tx).await?;
     if let Some(ref job) = job {
         sqlx::query("UPDATE events SET status='PROCESSING',updated_at=now() WHERE id=$1")
@@ -146,7 +145,19 @@ async fn process_job(
         &destination.signing_secret_ciphertext,
     )?;
     let timestamp = Utc::now().timestamp();
-    let signed = signature(&signing_secret, timestamp, &job.payload_raw).context("sign payload")?;
+    let previous_signing_secret = destination
+        .previous_signing_secret_ciphertext
+        .as_deref()
+        .map(|previous| secrets::decrypt_secret(&config.encryption_key, previous))
+        .transpose()?;
+    let signatures = signature_header(
+        &signing_secret,
+        previous_signing_secret.as_deref(),
+        &job.id.to_string(),
+        timestamp,
+        &job.payload_raw,
+    )
+    .context("sign payload")?;
     let started = Instant::now();
     let mut request = pinned_client
         .post(url)
@@ -155,21 +166,12 @@ async fn process_job(
             "User-Agent",
             format!("promptjang-relay/{}", env!("CARGO_PKG_VERSION")),
         )
-        .header("X-PromptJang-Signature", signed)
-        .header("X-PromptJang-Timestamp", timestamp)
-        .header("X-PromptJang-Event-ID", job.id.to_string())
+        .header("webhook-id", job.id.to_string())
+        .header("webhook-timestamp", timestamp)
+        .header("webhook-signature", signatures)
         .body(job.payload_raw.clone());
-    if let Some(previous) = &destination.previous_signing_secret_ciphertext {
-        let previous = secrets::decrypt_secret(&config.encryption_key, previous)?;
-        let previous_signature = signature(&previous, timestamp, &job.payload_raw)
-            .context("sign payload with previous secret")?;
-        request = request.header("X-PromptJang-Previous-Signature", previous_signature);
-    }
     if let Some(value) = &job.event_type {
         request = request.header("X-PromptJang-Event-Type", value);
-    }
-    if let Some(value) = &job.correlation_id {
-        request = request.header("X-Correlation-ID", value);
     }
     if config.otel_enabled {
         for (name, value) in telemetry::trace_headers_for_span(&span) {

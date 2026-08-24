@@ -1,6 +1,5 @@
 use crate::domain::DomainError;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use standardwebhooks::Webhook;
 
 #[cfg(test)]
 pub const RETRY_DELAYS: [i64; 5] = [60, 120, 240, 480, 960];
@@ -24,14 +23,30 @@ pub fn truncate_body(body: String) -> String {
     format!("{}[truncated]", &body[..boundary])
 }
 
-pub fn signature(secret: &str, timestamp: i64, payload: &[u8]) -> Result<String, DomainError> {
-    let mut signed = timestamp.to_string().into_bytes();
-    signed.push(b'.');
-    signed.extend_from_slice(payload);
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes())
-        .map_err(|error| DomainError::internal(format!("signing key rejected: {error}")))?;
-    mac.update(&signed);
-    Ok(hex::encode(mac.finalize().into_bytes()))
+pub fn signature(
+    secret: &str,
+    event_id: &str,
+    timestamp: i64,
+    payload: &[u8],
+) -> Result<String, DomainError> {
+    Webhook::new(secret)
+        .map_err(|error| DomainError::internal(format!("signing key rejected: {error}")))?
+        .sign(event_id, timestamp, payload)
+        .map_err(|error| DomainError::internal(format!("payload signing failed: {error}")))
+}
+
+pub fn signature_header(
+    current_secret: &str,
+    previous_secret: Option<&str>,
+    event_id: &str,
+    timestamp: i64,
+    payload: &[u8],
+) -> Result<String, DomainError> {
+    let mut signatures = vec![signature(current_secret, event_id, timestamp, payload)?];
+    if let Some(previous_secret) = previous_secret {
+        signatures.push(signature(previous_secret, event_id, timestamp, payload)?);
+    }
+    Ok(signatures.join(" "))
 }
 
 #[cfg(test)]
@@ -125,31 +140,66 @@ mod tests {
     #[test]
     fn signing_fixture_is_stable() {
         // Arrange
-        let secret = "whsec_fixture";
-        let timestamp = 1_700_000_000;
-        let payload = br#"{"ok":true}"#;
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/standard-webhooks-v1.json"
+        ))
+        .expect("fixture is valid JSON");
+        let secret = fixture["secret"].as_str().expect("secret");
+        let event_id = fixture["event_id"].as_str().expect("event ID");
+        let timestamp = fixture["timestamp"].as_i64().expect("timestamp");
+        let payload = fixture["payload"].as_str().expect("payload").as_bytes();
+        let expected = fixture["signature"].as_str().expect("signature");
 
         // Act
-        let signed = signature(secret, timestamp, payload);
+        let signed = signature(secret, event_id, timestamp, payload);
 
         // Assert
-        assert_eq!(
-            signed,
-            Ok("31a99e5c88be4311395a895ea0d686baf164714d49a52bae17fad334b78db984".to_string())
-        );
+        assert_eq!(signed.as_deref(), Ok(expected));
     }
 
     #[test]
-    fn signature_changes_with_payload_or_secret() {
+    fn signature_changes_with_event_payload_or_secret() {
         // Arrange
-        let base = signature("secret", 1_000, b"{}").expect("signing succeeds");
-        let other_payload = signature("secret", 1_000, b"{ }").expect("signing succeeds");
-        let other_secret = signature("Secret", 1_000, b"{}").expect("signing succeeds");
+        let secret = "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD";
+        let other_secret = "whsec_dGVzdF9zZWNyZXRfZm9yX3NpZ25pbmc=";
+        let base = signature(secret, "event-1", 1_000, b"{}").expect("signing succeeds");
+        let other_event = signature(secret, "event-2", 1_000, b"{}").expect("signing succeeds");
+        let other_payload = signature(secret, "event-1", 1_000, b"{ }").expect("signing succeeds");
+        let other_secret =
+            signature(other_secret, "event-1", 1_000, b"{}").expect("signing succeeds");
 
         // Act
-        let all_distinct = base != other_payload && base != other_secret;
+        let all_distinct = base != other_event && base != other_payload && base != other_secret;
 
         // Assert
         assert!(all_distinct);
+    }
+
+    #[test]
+    fn v02_hex_secret_suffix_is_accepted_as_base64() {
+        // Arrange
+        let secret = format!("whsec_{}", "0123456789abcdef".repeat(4));
+
+        // Act
+        let signed = signature(&secret, "event-1", 1_000, b"{}");
+
+        // Assert
+        assert!(signed.is_ok());
+    }
+
+    #[test]
+    fn rotation_serializes_two_versioned_signatures_in_one_header() {
+        // Arrange
+        let current = "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD";
+        let previous = "whsec_dGVzdF9zZWNyZXRfZm9yX3NpZ25pbmc=";
+
+        // Act
+        let header = signature_header(current, Some(previous), "event-1", 1_000, b"{}")
+            .expect("signatures are valid");
+        let signatures = header.split(' ').collect::<Vec<_>>();
+
+        // Assert
+        assert_eq!(signatures.len(), 2);
+        assert!(signatures.iter().all(|value| value.starts_with("v1,")));
     }
 }

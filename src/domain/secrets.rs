@@ -2,6 +2,7 @@ use crate::domain::DomainError;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 
@@ -9,6 +10,12 @@ pub fn new_secret(prefix: &str) -> String {
     let mut bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut bytes);
     format!("{prefix}{}", hex::encode(bytes))
+}
+
+pub fn new_webhook_secret() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    format!("whsec_{}", STANDARD.encode(bytes))
 }
 
 pub fn hash_bytes(value: &[u8]) -> String {
@@ -94,6 +101,16 @@ mod tests {
 
         // Assert
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn webhook_secret_is_standard_base64_with_256_bits() {
+        // Arrange and act
+        let secret = new_webhook_secret();
+        let encoded = secret.strip_prefix("whsec_").expect("prefix");
+
+        // Assert
+        assert_eq!(STANDARD.decode(encoded).map(|bytes| bytes.len()), Ok(32));
     }
 
     #[test]
