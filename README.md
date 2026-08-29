@@ -1,12 +1,12 @@
 # PromptJang Relay
 
-**Reliable webhook delivery, on your PostgreSQL.**
+**Durable delivery for webhooks and agents, on your PostgreSQL.**
 
-PromptJang Relay is an independent Apache-2.0 product for a team sending application events to registered HTTP services. One Rust binary serves the API, operational Vue UI, and delivery workers. PostgreSQL stores accepted payloads, delivery state, attempts, and history.
+PromptJang Relay is an independent Apache-2.0 product for a team handing work from producers to services and agents. Registered HTTP destinations receive signed webhook pushes. Named agent mailboxes retain messages for API or MCP consumers to pull, claim, and acknowledge. The Relay binary serves the API, operational Vue UI, and delivery workers; PostgreSQL stores accepted payloads, delivery state, attempts, and history.
 
-Relay has no billing, organizations, mailboxes, MCP, A2A, Cloudflare dependency, hosted control plane, or required telemetry.
+Relay requires no PromptJang Cloud account. It has no billing, organizations, multiple users, A2A, Cloudflare dependency, hosted control plane, or required telemetry. The optional `promptjang-relay-mcp` companion exposes agent-mailbox operations to local MCP clients.
 
-> v0.3.0 is the current production beta. v0.2.0 remains available for receivers that have not migrated from Relay's previous signing contract.
+> v0.3.1 is the current production beta. v0.2.0 remains available for receivers that have not migrated from Relay's previous signing contract.
 
 ## Quick start
 
@@ -28,6 +28,8 @@ curl -X POST 'http://localhost:8080/v1/destinations/DESTINATION_ID/events' \
 ```
 
 Relay returns `202` only after PostgreSQL commits the exact request bytes and queued state. A byte-identical idempotent duplicate returns the original event. Reusing the key with different bytes returns `409`.
+
+For pull delivery, producers send to a named mailbox and an agent claims messages through the API or optional MCP companion. Claims use leases, so unacknowledged work becomes available again after a consumer failure. See [Agent mailbox and MCP](docs/mailbox.md).
 
 ## Delivery contract
 
