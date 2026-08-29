@@ -177,8 +177,8 @@ impl Server {
             mail::MailPushOutcome::Created { id } => {
                 Ok(json!({ "id": id, "mailbox": name, "status": "UNREAD" }))
             }
-            mail::MailPushOutcome::IdempotentReplay { id } => Ok(json!({
-                "id": id, "mailbox": name, "status": "UNREAD", "idempotent_replay": true,
+            mail::MailPushOutcome::IdempotentReplay { id, status } => Ok(json!({
+                "id": id, "mailbox": name, "status": status, "idempotent_replay": true,
             })),
         }
     }
