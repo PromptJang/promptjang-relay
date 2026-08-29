@@ -1,5 +1,5 @@
 import { readonly, ref, shallowRef } from 'vue'
-import type { ApiKey, DeliveryAttempt, Destination, RelayEvent, RevealedSecret, SystemStatus } from '../types'
+import type { ApiKey, DeliveryAttempt, Destination, MailboxMessage, MailboxSummary, RelayEvent, RevealedSecret, SystemStatus } from '../types'
 
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>
 
@@ -7,6 +7,9 @@ export function useRelayData(request: Request) {
   const destinations = ref<Destination[]>([])
   const events = ref<RelayEvent[]>([])
   const keys = ref<ApiKey[]>([])
+  const mailboxes = ref<MailboxSummary[]>([])
+  const mailboxMessages = ref<MailboxMessage[]>([])
+  const selectedMailbox = shallowRef('')
   const system = shallowRef<SystemStatus>()
   const selectedEvent = shallowRef<{ event: RelayEvent; attempts: DeliveryAttempt[] }>()
   const loading = shallowRef(false)
@@ -22,15 +25,17 @@ export function useRelayData(request: Request) {
   async function refresh() {
     loading.value = true
     await run(async () => {
-      const [destinationData, eventData, keyData, systemData] = await Promise.all([
+      const [destinationData, eventData, keyData, mailboxData, systemData] = await Promise.all([
         request<{ destinations: Destination[] }>('/api/v1/destinations'),
         request<{ events: RelayEvent[] }>('/api/v1/events'),
         request<{ keys: ApiKey[] }>('/api/v1/keys'),
+        request<{ mailboxes: MailboxSummary[] }>('/api/v1/mail'),
         request<SystemStatus>('/api/v1/system'),
       ])
       destinations.value = destinationData.destinations
       events.value = eventData.events
       keys.value = keyData.keys
+      mailboxes.value = mailboxData.mailboxes
       system.value = systemData
     })
     loading.value = false
@@ -68,6 +73,21 @@ export function useRelayData(request: Request) {
     await run(() => request(`/api/v1/keys/${id}`, { method: 'DELETE' }))
     await refresh()
   }
+  async function inspectMailbox(name: string) {
+    const data = await run(() => request<{ messages: MailboxMessage[] }>(`/api/v1/mail/${encodeURIComponent(name)}/messages`))
+    if (data) {
+      selectedMailbox.value = name
+      mailboxMessages.value = data.messages
+    }
+  }
+  async function deleteMailbox(name: string) {
+    await run(() => request(`/api/v1/mail/${encodeURIComponent(name)}`, { method: 'DELETE' }))
+    if (selectedMailbox.value === name) {
+      selectedMailbox.value = ''
+      mailboxMessages.value = []
+    }
+    await refresh()
+  }
   async function inspectEvent(id: string) {
     const data = await run(() => request<{ event: RelayEvent; attempts: DeliveryAttempt[] }>(`/api/v1/events/${id}`))
     if (data) selectedEvent.value = data
@@ -78,9 +98,11 @@ export function useRelayData(request: Request) {
   }
 
   return {
-    destinations: readonly(destinations), events: readonly(events), keys: readonly(keys), system: readonly(system),
+    destinations: readonly(destinations), events: readonly(events), keys: readonly(keys), mailboxes: readonly(mailboxes),
+    mailboxMessages: readonly(mailboxMessages), selectedMailbox: readonly(selectedMailbox), system: readonly(system),
     selectedEvent: readonly(selectedEvent), loading: readonly(loading), error: readonly(error), secret: readonly(secret),
     refresh, createDestination, updateDestination, deleteDestination, rotateSecret, testDestination, finishRotation, createKey, revokeKey,
+    inspectMailbox, deleteMailbox,
     inspectEvent, replayEvent, clearSelectedEvent: () => { selectedEvent.value = undefined }, clearSecret: () => { secret.value = undefined },
   }
 }
