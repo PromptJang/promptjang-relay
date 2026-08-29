@@ -60,6 +60,7 @@ When enabled, Relay exports traces, metrics, and logs through OTLP/HTTP while co
 ## Documentation
 
 - [API, signing, and idempotency](docs/api.md)
+- [Agent mailbox (pull delivery)](docs/mailbox.md)
 - [Configuration reference](docs/configuration.md)
 - [OpenTelemetry and OTLP vendors](docs/observability.md)
 - [Security and private networks](docs/security.md)

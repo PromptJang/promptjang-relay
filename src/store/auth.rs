@@ -131,6 +131,18 @@ pub async fn require_api_key(
     pool: &PgPool,
     destination_id: Uuid,
 ) -> Result<Uuid> {
+    require_scoped_api_key(headers, pool, Some(destination_id)).await
+}
+
+pub async fn require_unscoped_api_key(headers: &HeaderMap, pool: &PgPool) -> Result<Uuid> {
+    require_scoped_api_key(headers, pool, None).await
+}
+
+async fn require_scoped_api_key(
+    headers: &HeaderMap,
+    pool: &PgPool,
+    destination_id: Option<Uuid>,
+) -> Result<Uuid> {
     let raw = bearer_token(headers).context("API key required")?;
     if !(raw.starts_with("pj_relay_") || raw.starts_with("pj_oss_")) {
         bail!("API key required");
@@ -142,7 +154,7 @@ pub async fn require_api_key(
     .fetch_optional(pool)
     .await?
     .context("invalid API key")?;
-    if !row.1 {
+    if let Some(destination_id) = destination_id.filter(|_| !row.1) {
         let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM api_key_destinations WHERE api_key_id=$1 AND destination_id=$2)")
             .bind(row.0).bind(destination_id).fetch_one(pool).await?;
         if !allowed {
