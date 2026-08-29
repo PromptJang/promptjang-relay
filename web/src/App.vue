@@ -41,7 +41,7 @@ onMounted(() => { if (token.value) void relay.refresh() })
     <DestinationsView v-else-if="view==='destinations'" :destinations="relay.destinations.value" @create="relay.createDestination" @toggle="relay.updateDestination" @test="relay.testDestination" @rotate="relay.rotateSecret" @finish-rotation="relay.finishRotation" @remove="relay.deleteDestination" />
     <MailboxesView v-else-if="view==='mailboxes'" :mailboxes="relay.mailboxes.value" :messages="relay.mailboxMessages.value" :selected="relay.selectedMailbox.value" @inspect="relay.inspectMailbox" @remove="relay.deleteMailbox" />
     <EventsView v-else-if="view==='events'" :events="relay.events.value" :selected="relay.selectedEvent.value" @inspect="relay.inspectEvent" @replay="relay.replayEvent" @close="relay.clearSelectedEvent" />
-    <KeysView v-else-if="view==='keys'" :keys="relay.keys.value" :destinations="relay.destinations.value" @create="relay.createKey" @revoke="relay.revokeKey" />
+    <KeysView v-else-if="view==='keys'" :keys="relay.keys.value" :destinations="relay.destinations.value" :reveal-key="relay.revealKey" @create="relay.createKey" @revoke="relay.revokeKey" />
     <SystemView v-else :system="relay.system.value" />
   </AppShell>
 </template>

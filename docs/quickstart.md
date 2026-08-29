@@ -17,7 +17,7 @@ Open http://localhost:8080 and sign in with `PJ_ADMIN_USERNAME` / `PJ_ADMIN_PASS
 
 ## 2. Create a destination and key
 
-In the UI: **Destinations → create** (any public HTTPS URL — webhook.site works for testing), then **API keys → create**. Copy the key once; only its `pj_relay_…` prefix is shown later.
+In the UI: **Destinations → create** (any public HTTPS URL — webhook.site works for testing), then **API keys → create**. Relay encrypts the full key at rest so the owner can copy it again later.
 
 ## 3. Send your first event
 

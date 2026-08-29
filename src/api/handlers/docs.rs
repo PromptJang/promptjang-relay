@@ -213,6 +213,9 @@ fn docs_response(active: Option<&str>, title: &str, body: &str) -> Response {
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 pub async fn index() -> Response {
@@ -337,5 +340,16 @@ mod tests {
         assert!(page.contains("color-scheme:dark"));
         assert!(page.contains(r#"style nonce="test-nonce""#));
         assert!(page.contains(r#"script nonce="test-nonce""#));
+    }
+
+    #[test]
+    fn documentation_responses_are_public_content_not_cached_spa_shells() {
+        let response = docs_response(None, "Documentation", "<h1>x</h1>");
+
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static("no-store"))
+        );
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
     }
 }

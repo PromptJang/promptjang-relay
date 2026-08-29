@@ -20,7 +20,7 @@ use crate::api::handlers::{
     events::{get_event, list_events, replay_event},
     health::{health, ready, system},
     ingest::ingest,
-    keys::{create_key, delete_key, list_keys},
+    keys::{create_key, delete_key, list_keys, reveal_key},
     login::{login, logout},
     mail::{acknowledge, claim, delete_mailbox, list_mailboxes, list_messages, nack, push},
 };
@@ -81,11 +81,13 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/v1/destinations/{id}/test", post(test_destination))
         .route("/api/v1/keys", get(list_keys).post(create_key))
         .route("/api/v1/keys/{id}", delete(delete_key))
+        .route("/api/v1/keys/{id}/secret", get(reveal_key))
         .route("/api/v1/events", get(list_events))
         .route("/api/v1/events/{id}", get(get_event))
         .route("/api/v1/events/{id}/replay", post(replay_event))
         .route("/api/v1/system", get(system))
         .route("/docs", get(handlers::docs::index))
+        .route("/docs/", get(handlers::docs::index))
         .route("/docs/{name}", get(handlers::docs::article))
         .route("/v1/destinations/{endpoint_id}/events", post(ingest))
         .route("/v1/mail/{name}/messages", post(push))

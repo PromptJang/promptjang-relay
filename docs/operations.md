@@ -6,7 +6,7 @@
 
 ## Backup and restore
 
-Back up PostgreSQL with your provider's tooling and `PJ_ENCRYPTION_KEY` through a separate secret manager. Test restore into an isolated database before relying on it. A database restore without the matching key preserves history but cannot decrypt signing secrets.
+Back up PostgreSQL with your provider's tooling and `PJ_ENCRYPTION_KEY` through a separate secret manager. Test restore into an isolated database before relying on it. A database restore without the matching key preserves history but cannot decrypt signing secrets or retrievable API keys.
 
 ## External PostgreSQL
 

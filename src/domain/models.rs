@@ -23,6 +23,7 @@ pub struct ApiKeyView {
     pub last_used_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub unrestricted: bool,
+    pub retrievable: bool,
     pub destination_ids: Vec<Uuid>,
 }
 

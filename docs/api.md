@@ -17,12 +17,12 @@ Producer ◀────202────── Relay ──signed attempts + retr
 | Destinations | `GET|POST /api/v1/destinations` · `GET|PATCH|DELETE /api/v1/destinations/:id` |
 | Secret rotation | `POST …/:id/signing-secret/rotate` · `DELETE …/:id/signing-secret/previous` |
 | Test delivery | `POST …/:id/test` |
-| API keys | `GET|POST /api/v1/keys` · `DELETE /api/v1/keys/:id` |
+| API keys | `GET|POST /api/v1/keys` · `GET /api/v1/keys/:id/secret` · `DELETE /api/v1/keys/:id` |
 | Events | `GET /api/v1/events?cursor=&destination_id=&status=&event_type=&limit=` · `GET /api/v1/events/:id` · `POST /api/v1/events/:id/replay` |
 | System | `GET /api/v1/system` |
 | Ingestion | `POST /v1/destinations/:id/events` |
 
-API keys are unrestricted when `destination_ids` is empty, or restricted to the listed destinations.
+API keys are unrestricted when `destination_ids` is empty, or restricted to the listed destinations. The owner-only secret endpoint returns the full encrypted-at-rest key with `Cache-Control: no-store`. Keys created before encrypted retrieval cannot be recovered and must be replaced if their original value was lost.
 
 ## Ingest
 

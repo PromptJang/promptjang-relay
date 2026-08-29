@@ -49,6 +49,7 @@ export interface ApiKey {
   last_used_at?: string
   created_at: string
   unrestricted: boolean
+  retrievable: boolean
   destination_ids: readonly string[]
 }
 
