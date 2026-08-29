@@ -4,9 +4,7 @@
 
 Relay stores each accepted item before delivery. It can push signed webhooks to services or hold messages for agents to pull through API or MCP.
 
-No PromptJang Cloud account. No usage billing. One self-hosted service for one trusted team.
-
-> v0.4.0 is the current production beta. v0.2.0 remains available for receivers that still use Relay's previous signing contract.
+No usage billing. One self-hosted service for one trusted team.
 
 ## How it works
 
@@ -97,4 +95,4 @@ cargo clippy --all-targets -- -D warnings
 cd web && npm ci && npm run build
 ```
 
-Apache-2.0 licensed. PromptJang Cloud is a separate product and is not required.
+Apache-2.0 licensed.
