@@ -1,8 +1,18 @@
-# Agent mailbox (pull delivery)
+# Agent mailbox and MCP
 
-Destinations push; the mailbox lets local tools and agents pull. Messages are stored per named mailbox with no delivery step: a producer pushes, a consumer claims with a lease, then acknowledges. At-least-once: a claim that is never acknowledged expires back to `UNREAD`.
+A mailbox holds durable work until an agent asks for it. Relay stores messages but does not run, schedule, or wake the agent.
 
-Lifecycle: `UNREAD → CLAIMED → (ACKNOWLEDGED | back to UNREAD on nack or lease expiry)`.
+```text
+Agent A or app ──push──▶ [UNREAD mailbox]
+                              │ claim with lease
+                              ▼
+                       [CLAIMED by Agent B]
+                         │ ack       │ nack or lease expiry
+                         ▼           ▼
+                  ACKNOWLEDGED    UNREAD again
+```
+
+Lifecycle: `UNREAD → CLAIMED → ACKNOWLEDGED`. A nack or expired lease returns the message to `UNREAD`, giving at-least-once processing.
 
 ## Endpoints
 
@@ -40,7 +50,7 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages/$ID/ack" \
 
 `claim` re-queues messages whose lease expired before claiming new ones, so a crashed consumer loses nothing. Use `nack` to return a message immediately (for example, on a processing error). The claim response includes `payload` (exact bytes as UTF-8) and `payload_json` (parsed when valid JSON), plus the stored `traceparent` when telemetry accepted one.
 
-## MCP server (local tool calling)
+## MCP server
 
 `promptjang-relay-mcp` is an MCP stdio server in the `mcp/` directory that exposes the mailbox as tools for local agents: `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list`. It reuses the same store layer and connects to the same PostgreSQL through `DATABASE_URL`.
 
@@ -60,7 +70,7 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages/$ID/ack" \
 
 `RELAY_MAILBOX` pins the default mailbox so agents can call `mail_push`/`mail_claim` without naming one; explicit `mailbox` arguments still win. Install from source with `cargo install --path mcp`.
 
-The v0.3 MCP companion connects directly to PostgreSQL and therefore receives database-level access, not a restricted Relay API key. Run it only on a trusted local machine, protect `DATABASE_URL` as a database credential, and pin `RELAY_MAILBOX` when an agent should use one inbox by default.
+The MCP companion connects directly to PostgreSQL and therefore receives database-level access, not a restricted Relay API key. Run it only on a trusted local machine, protect `DATABASE_URL` as a database credential, and pin `RELAY_MAILBOX` when an agent should use one inbox by default.
 
 ## Agent Skill
 

@@ -1,6 +1,10 @@
 # Quick start
 
-Relay core is one Rust binary plus your PostgreSQL. This page takes you from an empty database to a delivered webhook and, optionally, a local agent connection through the companion MCP binary.
+Relay is one application plus PostgreSQL. Start with webhook delivery, then add an agent mailbox only if you need pull-based work.
+
+```text
+Start Relay ──▶ Create API key ──▶ Send webhook or mailbox message ──▶ Inspect
+```
 
 ## 1. Start
 
@@ -28,7 +32,7 @@ curl -X POST "http://localhost:8080/v1/destinations/$DESTINATION_ID/events" \
 
 `202` means committed. Watch **Events** for `QUEUED → DELIVERED` with the receiver's response stored as evidence. See [API and signing](api.md) for verification on the receiver side.
 
-## 4. Pull instead of push (agent mailbox)
+## 4. Optional: pull instead of push
 
 ```bash
 curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages" \
@@ -43,7 +47,7 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/claim" \
 
 Claim returns `claim_token`s; finish each message with `ack` (or `nack` to requeue). Details in [Agent mailbox](mailbox.md).
 
-## 5. Connect a local agent (MCP)
+## 5. Optional: connect a local agent with MCP
 
 Give Claude Code, opencode, or any MCP client mailbox access by running the bundled MCP server against the same database:
 
