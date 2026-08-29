@@ -5,7 +5,7 @@ Relay is designed for one trusted team. Put the UI and administration API behind
 **Secrets at rest**
 
 - Signing secrets are AES-GCM encrypted with `PJ_ENCRYPTION_KEY`.
-- API keys and sessions are stored only as SHA-256 hashes; owner passwords use Argon2id.
+- API keys retain a SHA-256 hash for authentication and an AES-GCM encrypted copy for owner retrieval. Sessions are hash-only; owner passwords use Argon2id.
 - Keep the encryption key, bootstrap password, and database password in a secret manager; back the key up separately — losing it makes destination secrets unrecoverable.
 
 **Destination restrictions**

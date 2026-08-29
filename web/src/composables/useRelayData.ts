@@ -73,6 +73,10 @@ export function useRelayData(request: Request) {
     await run(() => request(`/api/v1/keys/${id}`, { method: 'DELETE' }))
     await refresh()
   }
+  async function revealKey(id: string): Promise<string> {
+    const data = await request<{ key: string }>(`/api/v1/keys/${id}/secret`)
+    return data.key
+  }
   async function inspectMailbox(name: string) {
     const data = await run(() => request<{ messages: MailboxMessage[] }>(`/api/v1/mail/${encodeURIComponent(name)}/messages`))
     if (data) {
@@ -101,7 +105,7 @@ export function useRelayData(request: Request) {
     destinations: readonly(destinations), events: readonly(events), keys: readonly(keys), mailboxes: readonly(mailboxes),
     mailboxMessages: readonly(mailboxMessages), selectedMailbox: readonly(selectedMailbox), system: readonly(system),
     selectedEvent: readonly(selectedEvent), loading: readonly(loading), error: readonly(error), secret: readonly(secret),
-    refresh, createDestination, updateDestination, deleteDestination, rotateSecret, testDestination, finishRotation, createKey, revokeKey,
+    refresh, createDestination, updateDestination, deleteDestination, rotateSecret, testDestination, finishRotation, createKey, revokeKey, revealKey,
     inspectMailbox, deleteMailbox,
     inspectEvent, replayEvent, clearSelectedEvent: () => { selectedEvent.value = undefined }, clearSecret: () => { secret.value = undefined },
   }
