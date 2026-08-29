@@ -63,14 +63,31 @@ pub struct MailboxMessage {
     pub payload_sha256: String,
     pub traceparent: Option<String>,
     pub claim_token: Option<String>,
+    pub claimed_until: Option<chrono::DateTime<chrono::Utc>>,
     pub claim_count: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum MailPushOutcome {
     Created { id: Uuid },
-    IdempotentReplay { id: Uuid },
+    IdempotentReplay { id: Uuid, status: String },
+}
+
+fn existing_message_outcome(
+    existing: Option<(Uuid, String, String)>,
+    payload_sha256: &str,
+) -> Result<Option<MailPushOutcome>, DomainError> {
+    let Some((id, existing_hash, status)) = existing else {
+        return Ok(None);
+    };
+    if existing_hash != payload_sha256 {
+        return Err(DomainError::conflict(
+            "idempotency key was already used with a different payload",
+        ));
+    }
+    Ok(Some(MailPushOutcome::IdempotentReplay { id, status }))
 }
 
 pub struct IncomingMessage {
@@ -128,17 +145,17 @@ pub async fn push(
             .execute(&mut *tx)
             .await
             .map_err(DomainError::from)?;
-        let existing = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM mailbox_messages WHERE mailbox_id=$1 AND idempotency_key_hash=$2",
+        let existing = sqlx::query_as::<_, (Uuid, String, String)>(
+            "SELECT id,payload_sha256,status FROM mailbox_messages WHERE mailbox_id=$1 AND idempotency_key_hash=$2",
         )
         .bind(mailbox.id)
         .bind(hash)
         .fetch_optional(&mut *tx)
         .await
         .map_err(DomainError::from)?;
-        if let Some(existing_id) = existing {
+        if let Some(outcome) = existing_message_outcome(existing, &payload_sha256)? {
             tx.commit().await.map_err(DomainError::from)?;
-            return Ok(MailPushOutcome::IdempotentReplay { id: existing_id });
+            return Ok(outcome);
         }
     }
     let id = Uuid::new_v4();
@@ -184,7 +201,7 @@ pub async fn claim(
          FROM next_messages
          WHERE m.id=next_messages.id
          RETURNING m.id, m.status, m.content_type, m.payload, m.payload_raw, m.payload_sha256,
-                   m.traceparent, m.claim_token, m.claim_count, m.created_at, m.updated_at",
+                   m.traceparent, m.claim_token, m.claimed_until, m.claim_count, m.created_at, m.updated_at",
     )
     .bind(mailbox.id)
     .bind(limit)
@@ -212,7 +229,7 @@ pub async fn acknowledge(
     };
     let changed = sqlx::query(&format!(
         "UPDATE mailbox_messages SET status='{next_status}', claim_token=NULL, claimed_until=NULL, updated_at=now()
-         WHERE id=$1 AND mailbox_id=$2 AND claim_token=$3 AND status='CLAIMED'"
+         WHERE id=$1 AND mailbox_id=$2 AND claim_token=$3 AND status='CLAIMED' AND claimed_until > now()"
     ))
     .bind(id)
     .bind(mailbox.id)
@@ -258,7 +275,7 @@ pub async fn list_messages(
 ) -> Result<Vec<MailboxMessage>, DomainError> {
     let mailbox = mailbox_id(pool, name).await?;
     sqlx::query_as::<_, MailboxMessage>(
-        "SELECT id,status,content_type,payload,payload_raw,payload_sha256,traceparent,claim_token,claim_count,created_at,updated_at
+        "SELECT id,status,content_type,payload,payload_raw,payload_sha256,traceparent,claim_token,claimed_until,claim_count,created_at,updated_at
          FROM mailbox_messages
          WHERE mailbox_id=$1 AND ($2::text IS NULL OR status=$2::text)
          ORDER BY created_at DESC LIMIT $3",
@@ -363,5 +380,29 @@ mod tests {
         // Assert
         assert!(first.starts_with("mlc_"));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn idempotency_replays_only_when_payload_hash_matches() {
+        let id = Uuid::new_v4();
+
+        let replay = existing_message_outcome(
+            Some((id, "same-hash".to_string(), "CLAIMED".to_string())),
+            "same-hash",
+        )
+        .expect("matching payload must resolve");
+        let conflict = existing_message_outcome(
+            Some((id, "first-hash".to_string(), "UNREAD".to_string())),
+            "different-hash",
+        );
+
+        assert_eq!(
+            replay,
+            Some(MailPushOutcome::IdempotentReplay {
+                id,
+                status: "CLAIMED".to_string(),
+            })
+        );
+        assert!(conflict.is_err());
     }
 }
