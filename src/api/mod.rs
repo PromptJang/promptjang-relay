@@ -85,6 +85,8 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/v1/events/{id}", get(get_event))
         .route("/api/v1/events/{id}/replay", post(replay_event))
         .route("/api/v1/system", get(system))
+        .route("/docs", get(handlers::docs::index))
+        .route("/docs/{name}", get(handlers::docs::article))
         .route("/v1/destinations/{endpoint_id}/events", post(ingest))
         .route("/v1/mail/{name}/messages", post(push))
         .route("/v1/mail/{name}/claim", post(claim))

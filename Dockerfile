@@ -9,6 +9,7 @@ FROM rust:1.89-bookworm AS rust
 WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
+COPY docs ./docs
 COPY mcp/Cargo.toml ./mcp/Cargo.toml
 COPY mcp/src ./mcp/src
 COPY src ./src
