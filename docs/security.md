@@ -1,6 +1,6 @@
 # Relay security
 
-Relay is designed for one trusted team. Put the UI and administration API behind TLS and network access controls. A reverse proxy may provide SSO, but Relay v0.2 still uses its local owner session.
+Relay is designed for one trusted team. Put the UI and administration API behind TLS and network access controls. A reverse proxy may provide SSO; Relay still uses its local owner session.
 
 **Secrets at rest**
 

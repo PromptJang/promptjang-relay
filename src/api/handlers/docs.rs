@@ -217,7 +217,7 @@ fn docs_response(active: Option<&str>, title: &str, body: &str) -> Response {
 
 pub async fn index() -> Response {
     let body = render(
-        "# PromptJang Relay documentation\n\nEverything needed to run Relay and integrate with it — pick a page from the sidebar or start with the quick start.\n",
+        "# PromptJang Relay documentation\n\nRun signed webhook delivery or durable agent mailboxes on your PostgreSQL. Start with the quick start, then open only the guide you need.\n",
     );
     docs_response(None, "Documentation", &body)
 }

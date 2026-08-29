@@ -2,6 +2,13 @@
 
 The stable API uses `/api/v1` for administration and `/v1/destinations/:id/events` for ingestion. v0.1 `/api/*` and `/e/:id` routes remain deprecated aliases through v1.0 and send a `Deprecation` response header.
 
+```text
+Producer ──POST event──▶ Relay ──commit payload + queue──▶ PostgreSQL
+Producer ◀────202────── Relay ──signed attempts + retries──▶ Receiver
+```
+
+`202` means Relay owns the item. It does not mean the receiver has processed it.
+
 ## Routes
 
 | Area | Routes |
