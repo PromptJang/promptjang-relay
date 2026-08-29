@@ -1,5 +1,5 @@
 import { readonly, ref, shallowRef } from 'vue'
-import type { ApiKey, DeliveryAttempt, Destination, RelayEvent, SystemStatus } from '../types'
+import type { ApiKey, DeliveryAttempt, Destination, RelayEvent, RevealedSecret, SystemStatus } from '../types'
 
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>
 
@@ -11,7 +11,7 @@ export function useRelayData(request: Request) {
   const selectedEvent = shallowRef<{ event: RelayEvent; attempts: DeliveryAttempt[] }>()
   const loading = shallowRef(false)
   const error = shallowRef('')
-  const secret = shallowRef('')
+  const secret = shallowRef<RevealedSecret>()
 
   async function run<T>(operation: () => Promise<T>): Promise<T | undefined> {
     error.value = ''
@@ -38,7 +38,7 @@ export function useRelayData(request: Request) {
 
   async function createDestination(input: { name: string; url: string }) {
     const data = await run(() => request<{ secret: string }>('/api/v1/destinations', { method: 'POST', body: JSON.stringify(input) }))
-    if (data) { secret.value = data.secret; await refresh() }
+    if (data) { secret.value = { value: data.secret, kind: 'signing-secret' }; await refresh() }
   }
   async function updateDestination(destination: Destination, enabled: boolean) {
     await run(() => request(`/api/v1/destinations/${destination.id}`, { method: 'PATCH', body: JSON.stringify({ name: destination.name, url: destination.url, enabled }) }))
@@ -50,7 +50,7 @@ export function useRelayData(request: Request) {
   }
   async function rotateSecret(id: string) {
     const data = await run(() => request<{ secret: string }>(`/api/v1/destinations/${id}/signing-secret/rotate`, { method: 'POST' }))
-    if (data) secret.value = data.secret
+    if (data) secret.value = { value: data.secret, kind: 'signing-secret' }
   }
   async function testDestination(id: string) {
     await run(() => request(`/api/v1/destinations/${id}/test`, { method: 'POST' }))
@@ -62,7 +62,7 @@ export function useRelayData(request: Request) {
   }
   async function createKey(input: { name: string; destination_ids: string[] }) {
     const data = await run(() => request<{ key: string }>('/api/v1/keys', { method: 'POST', body: JSON.stringify(input) }))
-    if (data) { secret.value = data.key; await refresh() }
+    if (data) { secret.value = { value: data.key, kind: 'api-key' }; await refresh() }
   }
   async function revokeKey(id: string) {
     await run(() => request(`/api/v1/keys/${id}`, { method: 'DELETE' }))
@@ -81,6 +81,6 @@ export function useRelayData(request: Request) {
     destinations: readonly(destinations), events: readonly(events), keys: readonly(keys), system: readonly(system),
     selectedEvent: readonly(selectedEvent), loading: readonly(loading), error: readonly(error), secret: readonly(secret),
     refresh, createDestination, updateDestination, deleteDestination, rotateSecret, testDestination, finishRotation, createKey, revokeKey,
-    inspectEvent, replayEvent, clearSelectedEvent: () => { selectedEvent.value = undefined }, clearSecret: () => { secret.value = '' },
+    inspectEvent, replayEvent, clearSelectedEvent: () => { selectedEvent.value = undefined }, clearSecret: () => { secret.value = undefined },
   }
 }
