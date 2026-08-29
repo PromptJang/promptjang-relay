@@ -1,5 +1,10 @@
 export type ViewName = 'overview' | 'destinations' | 'events' | 'keys' | 'system'
 
+export interface RevealedSecret {
+  value: string
+  kind: 'api-key' | 'signing-secret'
+}
+
 export interface Destination {
   id: string
   name: string
