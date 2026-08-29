@@ -59,3 +59,5 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages/$ID/ack" \
 ```
 
 `RELAY_MAILBOX` pins the default mailbox so agents can call `mail_push`/`mail_claim` without naming one; explicit `mailbox` arguments still win. Install from source with `cargo install --path mcp`.
+
+The v0.3 MCP companion connects directly to PostgreSQL and therefore receives database-level access, not a restricted Relay API key. Run it only on a trusted local machine, protect `DATABASE_URL` as a database credential, and pin `RELAY_MAILBOX` when an agent should use one inbox by default.

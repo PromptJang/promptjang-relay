@@ -1,6 +1,6 @@
 # Quick start
 
-Relay is one Rust binary plus your PostgreSQL. This page takes you from empty database to first delivered event and a working local agent connection.
+Relay core is one Rust binary plus your PostgreSQL. This page takes you from an empty database to a delivered webhook and, optionally, a local agent connection through the companion MCP binary.
 
 ## 1. Start
 
