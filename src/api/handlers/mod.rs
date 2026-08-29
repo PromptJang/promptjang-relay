@@ -4,6 +4,7 @@ pub mod health;
 pub mod ingest;
 pub mod keys;
 pub mod login;
+pub mod mail;
 
 use axum::http::HeaderMap;
 use sqlx::PgPool;

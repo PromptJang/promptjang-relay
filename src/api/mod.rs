@@ -22,6 +22,7 @@ use crate::api::handlers::{
     ingest::ingest,
     keys::{create_key, delete_key, list_keys},
     login::{login, logout},
+    mail::{acknowledge, claim, delete_mailbox, list_mailboxes, list_messages, nack, push},
 };
 
 async fn deprecated(request: Request<axum::body::Body>, next: Next) -> Response {
@@ -85,6 +86,13 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/v1/events/{id}/replay", post(replay_event))
         .route("/api/v1/system", get(system))
         .route("/v1/destinations/{endpoint_id}/events", post(ingest))
+        .route("/v1/mail/{name}/messages", post(push))
+        .route("/v1/mail/{name}/claim", post(claim))
+        .route("/v1/mail/{name}/messages/{id}/ack", post(acknowledge))
+        .route("/v1/mail/{name}/messages/{id}/nack", post(nack))
+        .route("/api/v1/mail", get(list_mailboxes))
+        .route("/api/v1/mail/{name}", delete(delete_mailbox))
+        .route("/api/v1/mail/{name}/messages", get(list_messages))
         .merge(legacy)
         .fallback_service(
             ServeDir::new(&static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html"))),

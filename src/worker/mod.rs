@@ -33,6 +33,10 @@ pub async fn run(pool: PgPool, config: Arc<Config>, shutdown: CancellationToken)
             Err(error) => tracing::error!(%error, "retention cleanup failed"),
             Ok(cleaned) => crate::telemetry::cleaned(cleaned),
         }
+        match store::mail::cleanup(&pool, config.retention_days).await {
+            Err(error) => tracing::error!(%error, "mailbox retention cleanup failed"),
+            Ok(cleaned) => crate::telemetry::cleaned(cleaned),
+        }
         if let Ok((active, _, _, _)) = store::events::summary(&pool).await {
             crate::telemetry::queue_depth(active.max(0) as u64);
         }
