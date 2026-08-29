@@ -14,7 +14,7 @@ Self-hosted webhook delivery on PostgreSQL. One Rust binary (Axum + SQLx), Vue U
 ## Commands
 
 ```bash
-cargo test                                            # Rust unit tests
+cargo test --workspace                               # Rust unit tests (relay + mcp)
 cargo fmt && cargo clippy --all-targets -- -D warnings
 cd web && npm run build                               # vue-tsc + vite build
 docker compose up -d --build                          # local stack on :8080
@@ -27,6 +27,7 @@ src/domain/    pure policy: validation, secrets, delivery rules, errors
 src/store/     PostgreSQL persistence (auth, destinations, events, keys)
 src/api/       axum edge: state, error mapping, per-resource handlers
 src/worker/    delivery run loop + policy
+mcp/           MCP stdio server for the agent mailbox (reuses the store layer)
 migrations/    SQLx migrations (auto-applied at startup)
 docs/          operator documentation
 web/           Vue operational UI
