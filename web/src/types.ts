@@ -1,4 +1,4 @@
-export type ViewName = 'overview' | 'destinations' | 'events' | 'keys' | 'system'
+export type ViewName = 'overview' | 'destinations' | 'mailboxes' | 'events' | 'keys' | 'system'
 
 export interface RevealedSecret {
   value: string
@@ -50,6 +50,27 @@ export interface ApiKey {
   created_at: string
   unrestricted: boolean
   destination_ids: readonly string[]
+}
+
+export interface MailboxSummary {
+  name: string
+  unread: number
+  claimed: number
+  acknowledged: number
+  created_at: string
+}
+
+export interface MailboxMessage {
+  id: string
+  status: string
+  content_type: string
+  payload: string
+  payload_json?: unknown
+  payload_sha256: string
+  traceparent?: string
+  claim_count: number
+  created_at: string
+  updated_at: string
 }
 
 export interface SystemStatus {
