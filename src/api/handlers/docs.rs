@@ -1,4 +1,5 @@
 use axum::extract::Path;
+use axum::http::{HeaderValue, header};
 use axum::response::{Html, IntoResponse, Response};
 use pulldown_cmark::{Options, Parser};
 
@@ -110,7 +111,7 @@ fn navigation_for(name: &str) -> (Option<DocLink>, Option<DocLink>) {
     (previous, next)
 }
 
-pub fn page(active: Option<&str>, title: &str, body: &str) -> String {
+pub fn page(active: Option<&str>, title: &str, body: &str, nonce: &str) -> String {
     let sidebar = DOCS
         .iter()
         .map(|&(slug, doc_title, _)| {
@@ -140,7 +141,7 @@ pub fn page(active: Option<&str>, title: &str, body: &str) -> String {
         |name| format!("Documentation <span>/</span> {}", title_for(name)),
     );
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>{title} · PromptJang Relay</title><style>
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>{title} · PromptJang Relay</title><style nonce="{nonce}">
 :root {{ font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif; color-scheme:dark; --bg:#080d16; --surface:#0e1624; --elevated:#152033; --border:#263349; --text:#f4f7fb; --muted:#9aa8ba; --accent:#00d4aa; }}
 @media (prefers-color-scheme: light) {{ :root {{ color-scheme:light; --bg:#f5f8f7; --surface:#fff; --elevated:#eef3f1; --border:#d8e2df; --text:#101820; --muted:#5c6975; }} }}
 * {{ box-sizing:border-box }} body {{ margin:0; background:var(--bg); color:var(--text); line-height:1.7; font-size:15.5px }}
@@ -176,7 +177,7 @@ ul,ol {{ padding-left:24px }} li {{ margin:5px 0 }}
 .pager-link:hover {{ border-color:var(--accent) }} .pager-link.next {{ text-align:right }}
 @media(max-width:780px) {{ .layout {{ grid-template-columns:1fr }} aside {{ position:static; height:auto; border-right:none; border-bottom:1px solid var(--border) }} .backlink {{ display:none }} main {{ padding:26px 18px 50px }} .pager {{ grid-template-columns:1fr }} }}
 @media (prefers-reduced-motion: no-preference) {{ .pager-link,aside nav a {{ transition:border-color .15s,background .15s,color .15s }} }}
-</style></head><body><div class="layout"><aside><p class="eyebrow">RELAY · SELF-HOSTED</p><p class="brand">PromptJang <span>Relay</span></p><nav aria-label="Documentation">{sidebar}</nav><a class="backlink" href="/">← Open the UI</a></aside><main><p class="crumbs">{breadcrumb}</p>{body}{footer}</main></div><script>
+</style></head><body><div class="layout"><aside><p class="eyebrow">RELAY · SELF-HOSTED</p><p class="brand">PromptJang <span>Relay</span></p><nav aria-label="Documentation">{sidebar}</nav><a class="backlink" href="/">← Open the UI</a></aside><main><p class="crumbs">{breadcrumb}</p>{body}{footer}</main></div><script nonce="{nonce}">
 document.querySelectorAll("pre").forEach(function (pre) {{
   var wrapper = document.createElement("div");
   wrapper.className = "codeblock";
@@ -200,18 +201,32 @@ document.querySelectorAll("pre").forEach(function (pre) {{
     )
 }
 
+fn docs_response(active: Option<&str>, title: &str, body: &str) -> Response {
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let csp = format!(
+        "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    );
+    let mut response = Html(page(active, title, body, &nonce)).into_response();
+    if let Ok(value) = HeaderValue::from_str(&csp) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_SECURITY_POLICY, value);
+    }
+    response
+}
+
 pub async fn index() -> Response {
     let body = render(
         "# PromptJang Relay documentation\n\nEverything needed to run Relay and integrate with it — pick a page from the sidebar or start with the quick start.\n",
     );
-    Html(page(None, "Documentation", &body)).into_response()
+    docs_response(None, "Documentation", &body)
 }
 
 pub async fn article(Path(name): Path<String>) -> Response {
     match lookup(&name) {
         Some(markdown) => {
             let title = title_for(&name);
-            Html(page(Some(&name), title, &render(markdown))).into_response()
+            docs_response(Some(&name), title, &render(markdown))
         }
         None => axum::http::StatusCode::NOT_FOUND.into_response(),
     }
@@ -265,7 +280,12 @@ mod tests {
     #[test]
     fn sidebar_marks_the_active_document() {
         // Arrange
-        let page = page(Some("mailbox"), "Agent mailbox & MCP", "<h1>x</h1>");
+        let page = page(
+            Some("mailbox"),
+            "Agent mailbox & MCP",
+            "<h1>x</h1>",
+            "test-nonce",
+        );
 
         // Assert
         assert!(page.contains(r#"class="active" href="/docs/mailbox""#));
@@ -275,10 +295,15 @@ mod tests {
     #[test]
     fn middle_pages_link_both_ways_and_edges_link_one_way() {
         // Arrange
-        let first = page(Some("quickstart"), "Quick start", "<h1>x</h1>");
-        let middle = page(Some("api"), "API and signing", "<h1>x</h1>");
+        let first = page(
+            Some("quickstart"),
+            "Quick start",
+            "<h1>x</h1>",
+            "test-nonce",
+        );
+        let middle = page(Some("api"), "API and signing", "<h1>x</h1>", "test-nonce");
         let last_slug = DOCS[DOCS.len() - 1].0;
-        let last = page(Some(last_slug), "Last", "<h1>x</h1>");
+        let last = page(Some(last_slug), "Last", "<h1>x</h1>", "test-nonce");
 
         // Act + Assert
         assert!(first.contains("Next →") && !first.contains("← Previous"));
@@ -293,6 +318,7 @@ mod tests {
             Some("api"),
             "API and signing",
             "<pre><code>curl</code></pre>",
+            "test-nonce",
         );
 
         // Act + Assert
@@ -303,11 +329,13 @@ mod tests {
     #[test]
     fn page_shell_keeps_the_ui_exit_and_brand() {
         // Arrange
-        let page = page(None, "Documentation", "<h1>x</h1>");
+        let page = page(None, "Documentation", "<h1>x</h1>", "test-nonce");
 
         // Assert
         assert!(page.contains("PromptJang <span>Relay</span>"));
         assert!(page.contains("href=\"/\""));
         assert!(page.contains("color-scheme:dark"));
+        assert!(page.contains(r#"style nonce="test-nonce""#));
+        assert!(page.contains(r#"script nonce="test-nonce""#));
     }
 }
