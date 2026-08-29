@@ -49,7 +49,7 @@ fn message_view(message: &mail::MailboxMessage, include_token: bool) -> serde_js
     });
     if include_token {
         view["claim_token"] = json!(message.claim_token);
-        view["claimed_until"] = json!(message.updated_at);
+        view["claimed_until"] = json!(message.claimed_until);
     }
     view
 }
@@ -113,9 +113,9 @@ pub async fn push(
             StatusCode::ACCEPTED,
             Json(json!({"id":id,"mailbox":name,"status":"UNREAD"})),
         )),
-        MailPushOutcome::IdempotentReplay { id } => Ok((
+        MailPushOutcome::IdempotentReplay { id, status } => Ok((
             StatusCode::ACCEPTED,
-            Json(json!({"id":id,"mailbox":name,"status":"UNREAD","idempotent_replay":true})),
+            Json(json!({"id":id,"mailbox":name,"status":status,"idempotent_replay":true})),
         )),
     }
 }
