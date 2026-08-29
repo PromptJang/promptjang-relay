@@ -1594,6 +1594,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "promptjang-relay-mcp"
+version = "0.1.0"
+dependencies = [
+ "promptjang-relay",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "prost"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

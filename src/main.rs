@@ -1,9 +1,4 @@
-mod api;
-mod config;
-mod domain;
-mod store;
-mod telemetry;
-mod worker;
+use promptjang_relay::{api, config, store, telemetry, worker};
 
 use anyhow::Result;
 use config::Config;

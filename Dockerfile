@@ -10,7 +10,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
 COPY src ./src
-RUN cargo build --release
+RUN cargo build --release --bin promptjang-relay
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libssl3 && rm -rf /var/lib/apt/lists/*
