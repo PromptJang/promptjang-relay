@@ -1,3 +1,4 @@
+pub mod docs;
 pub mod endpoints;
 pub mod events;
 pub mod health;

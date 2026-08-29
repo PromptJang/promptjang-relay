@@ -20,6 +20,7 @@ hex = "0.4"
 hmac = "0.12"
 ipnet = "2.12"
 opentelemetry = { version = "0.32", features = ["metrics", "logs", "trace"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 opentelemetry-appender-tracing = "0.32"
 opentelemetry-http = "0.32"
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "reqwest-rustls", "metrics", "logs", "trace"] }
