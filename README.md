@@ -1,5 +1,7 @@
 # PromptJang Relay
 
+[![Build](https://github.com/PromptJang/promptjang-relay/actions/workflows/release.yml/badge.svg)](https://github.com/PromptJang/promptjang-relay/actions/workflows/release.yml)
+
 **Durable delivery for webhooks and agents, on your PostgreSQL.**
 
 Relay stores each accepted item before delivery. It can push signed webhooks to services or hold messages for agents to pull through API or MCP.
