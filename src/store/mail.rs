@@ -58,7 +58,7 @@ pub struct MailboxMessage {
     pub id: Uuid,
     pub status: String,
     pub content_type: String,
-    pub payload: Value,
+    pub payload: Option<Value>,
     pub payload_raw: Vec<u8>,
     pub payload_sha256: String,
     pub traceparent: Option<String>,
