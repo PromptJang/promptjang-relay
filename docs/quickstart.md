@@ -47,25 +47,28 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/claim" \
 
 Claim returns `claim_token`s; finish each message with `ack` (or `nack` to requeue). Details in [Agent mailbox](mailbox.md).
 
-## 5. Optional: connect a local agent with MCP
+## 5. Optional: connect an agent with MCP
 
-Give Claude Code, opencode, or any MCP client mailbox access by running the bundled MCP server against the same database:
+Create a Relay API key, keep it in your shell environment, and point the client at Relay's built-in Streamable HTTP endpoint:
 
-```json
-{
-  "mcpServers": {
-    "promptjang-relay": {
-      "command": "promptjang-relay-mcp",
-      "env": {
-        "DATABASE_URL": "postgres://relay:password@localhost:5432/relay",
-        "RELAY_MAILBOX": "agent-tasks"
-      }
-    }
-  }
-}
+```bash
+export PJ_RELAY_API_KEY='pj_relay_YOUR_KEY'
+
+codex mcp add promptjang-relay \
+  --url http://localhost:8080/mcp \
+  --bearer-token-env-var PJ_RELAY_API_KEY
 ```
 
-Build the server once with `cargo install --path mcp`. The agent can then call `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list` as tools. Compose binds PostgreSQL to `127.0.0.1:5432` for exactly this use.
+The client can call `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list`. Every mailbox tool takes an explicit `mailbox` name. Relay owns PostgreSQL; the client receives only the MCP URL and API key.
+
+For another Streamable HTTP MCP client, configure:
+
+```text
+URL: http://localhost:8080/mcp
+Authorization: Bearer pj_relay_YOUR_KEY
+```
+
+The old `promptjang-relay-mcp` stdio binary and its direct `DATABASE_URL` mode remain temporarily for compatibility. Do not use it for new installations.
 
 ## Where next
 

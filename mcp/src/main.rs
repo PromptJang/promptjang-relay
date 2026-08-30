@@ -154,6 +154,7 @@ impl Server {
                 "application/json".to_string(),
             ),
         };
+        let payload_sha256 = secrets::hash_bytes(&payload_raw);
         let idempotency_key_hash = arguments
             .get("idempotency_key")
             .and_then(Value::as_str)
@@ -165,7 +166,7 @@ impl Server {
                 payload_raw,
                 payload: parsed,
                 content_type,
-                payload_sha256: secrets::hash_bytes(payload.to_string().as_bytes()),
+                payload_sha256,
                 idempotency_key_hash,
                 traceparent: None,
                 tracestate: None,

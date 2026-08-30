@@ -4,11 +4,15 @@ mod state;
 
 pub use state::AppState;
 
-use axum::http::{HeaderValue, Request};
+use axum::extract::State;
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Router, middleware};
+use rmcp::transport::streamable_http_server::{
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -55,6 +59,50 @@ async fn request_id(mut request: Request<axum::body::Body>, next: Next) -> Respo
     response
 }
 
+fn valid_mcp_origin(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    origin
+        .to_str()
+        .ok()
+        .and_then(|value| url::Url::parse(value).ok())
+        .and_then(|url| url.host_str().map(|name| (name.to_string(), url.port())))
+        .is_some_and(|(name, port)| {
+            let origin_host = port.map_or(name.clone(), |port| format!("{name}:{port}"));
+            origin_host.eq_ignore_ascii_case(host)
+        })
+}
+
+async fn require_mcp_api_key(
+    State(state): State<AppState>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    if !valid_mcp_origin(request.headers()) {
+        return (StatusCode::FORBIDDEN, "MCP Origin does not match Host").into_response();
+    }
+    if crate::store::auth::require_unscoped_api_key(request.headers(), &state.pool)
+        .await
+        .is_err()
+    {
+        let mut response =
+            (StatusCode::UNAUTHORIZED, "valid Relay API key required").into_response();
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"promptjang-relay\""),
+        );
+        return response;
+    }
+    next.run(request).await
+}
+
 pub fn router(state: AppState, static_dir: String) -> Router {
     let legacy = Router::new()
         .route("/api/login", post(login))
@@ -70,6 +118,22 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/events/{id}/replay", post(replay_event))
         .route("/e/{endpoint_id}", post(ingest))
         .layer(middleware::from_fn(deprecated));
+    let mcp_service: StreamableHttpService<crate::mcp::RelayMcp, LocalSessionManager> =
+        StreamableHttpService::new(
+            {
+                let pool = state.pool.clone();
+                move || Ok(crate::mcp::RelayMcp::new(pool.clone()))
+            },
+            Default::default(),
+            StreamableHttpServerConfig::default(),
+        );
+    let mcp =
+        Router::new()
+            .nest_service("/mcp", mcp_service)
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                require_mcp_api_key,
+            ));
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -97,6 +161,7 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/v1/mail", get(list_mailboxes))
         .route("/api/v1/mail/{name}", delete(delete_mailbox))
         .route("/api/v1/mail/{name}/messages", get(list_messages))
+        .merge(mcp)
         .merge(legacy)
         .fallback_service(
             ServeDir::new(&static_dir).fallback(ServeFile::new(format!("{static_dir}/index.html"))),
@@ -119,4 +184,37 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         ))
         .layer(middleware::from_fn(request_id))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_origin_allows_non_browser_clients_and_same_host() {
+        let mut no_origin = HeaderMap::new();
+        no_origin.insert(header::HOST, HeaderValue::from_static("localhost:8080"));
+        assert!(valid_mcp_origin(&no_origin));
+
+        let mut same_origin = no_origin.clone();
+        same_origin.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://localhost:8080"),
+        );
+        assert!(valid_mcp_origin(&same_origin));
+    }
+
+    #[test]
+    fn mcp_origin_rejects_cross_origin_and_missing_host() {
+        let mut cross_origin = HeaderMap::new();
+        cross_origin.insert(header::HOST, HeaderValue::from_static("localhost:8080"));
+        cross_origin.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://attacker.example"),
+        );
+        assert!(!valid_mcp_origin(&cross_origin));
+
+        cross_origin.remove(header::HOST);
+        assert!(!valid_mcp_origin(&cross_origin));
+    }
 }
