@@ -24,7 +24,7 @@ Agent or app ──message──▶ Relay mailbox ◀──claim / acknowledge�
 |---|---|
 | Deliver an event to an HTTP service | Webhook destination |
 | Leave durable work for an agent | Agent mailbox |
-| Let a local agent use the mailbox | Optional MCP companion |
+| Let an agent use the mailbox | Built-in MCP endpoint |
 
 Relay does not run or wake agents. Your CLI, script, or scheduler decides when an agent checks its mailbox.
 
@@ -61,6 +61,19 @@ A byte-identical duplicate returns the original event. Reusing the same idempote
 
 See the [quick start](docs/quickstart.md) for webhook, mailbox, and MCP setup.
 
+### Connect Codex to Relay
+
+Relay owns the database. MCP clients connect to Relay over authenticated HTTP:
+
+```bash
+export PJ_RELAY_API_KEY='pj_relay_YOUR_KEY'
+codex mcp add promptjang-relay \
+  --url http://localhost:8080/mcp \
+  --bearer-token-env-var PJ_RELAY_API_KEY
+```
+
+No `DATABASE_URL` is given to the agent. The older database-connected stdio companion remains available for compatibility, but it is no longer the recommended setup.
+
 ## Delivery contract
 
 - At-least-once delivery; receivers must tolerate duplicates.
@@ -80,7 +93,7 @@ There are no destination or API-key count caps. Payload, rate, retention, worker
 - [Quick start](docs/quickstart.md)
 - [API, signing, and idempotency](docs/api.md)
 - [Agent mailbox and MCP](docs/mailbox.md)
-- [PromptJang Agent Skill](skills/promptjang/SKILL.md)
+- [PromptJang Agent Skill](https://github.com/PromptJang/promptjang-relay-skill) (Relay and Relay One only; a release copy also lives in `skills/promptjang`)
 - [Configuration](docs/configuration.md)
 - [OpenTelemetry](docs/observability.md)
 - [Security](docs/security.md)

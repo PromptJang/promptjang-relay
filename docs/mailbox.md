@@ -50,30 +50,31 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages/$ID/ack" \
 
 `claim` re-queues messages whose lease expired before claiming new ones, so a crashed consumer loses nothing. Use `nack` to return a message immediately (for example, on a processing error). The claim response includes `payload` (exact bytes as UTF-8) and `payload_json` (parsed when valid JSON), plus the stored `traceparent` when telemetry accepted one.
 
-## MCP server
+## MCP endpoint
 
-`promptjang-relay-mcp` is an MCP stdio server in the `mcp/` directory that exposes the mailbox as tools for local agents: `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list`. It reuses the same store layer and connects to the same PostgreSQL through `DATABASE_URL`.
+Relay serves Streamable HTTP MCP at `/mcp`. It exposes `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list` and requires a Relay API key on every request.
 
-```json
-{
-  "mcpServers": {
-    "promptjang-relay": {
-      "command": "promptjang-relay-mcp",
-      "env": {
-        "DATABASE_URL": "postgres://…",
-        "RELAY_MAILBOX": "agent-tasks"
-      }
-    }
-  }
-}
+```bash
+export PJ_RELAY_API_KEY='pj_relay_YOUR_KEY'
+codex mcp add promptjang-relay \
+  --url http://localhost:8080/mcp \
+  --bearer-token-env-var PJ_RELAY_API_KEY
 ```
 
-`RELAY_MAILBOX` pins the default mailbox so agents can call `mail_push`/`mail_claim` without naming one; explicit `mailbox` arguments still win. Install from source with `cargo install --path mcp`.
+Agents name the mailbox explicitly on each push, claim, acknowledgement, or nack. This makes one MCP connection usable for several agent inboxes without leaking `DATABASE_URL` outside Relay.
 
-The MCP companion connects directly to PostgreSQL and therefore receives database-level access, not a restricted Relay API key. Run it only on a trusted local machine, protect `DATABASE_URL` as a database credential, and pin `RELAY_MAILBOX` when an agent should use one inbox by default.
+Browser-originated requests are accepted only when `Origin` matches `Host`. Non-browser clients normally omit `Origin`. Bearer tokens must be sent through the `Authorization` header, never a URL query parameter.
+
+The `promptjang-relay-mcp` stdio binary remains a deprecated compatibility path for existing installations. It connects directly to PostgreSQL and should not be used for new setups.
 
 ## Agent Skill
 
-The repository includes a portable [PromptJang Agent Skill](../skills/promptjang/SKILL.md) using the [Agent Skills](https://agentskills.io/home) format. Install the complete `skills/promptjang` directory in the skill location supported by the CLI agent. The skill teaches agents when and how to send, claim, acknowledge, retry, and return mailbox results; it does not start polling or wake agents.
+Install the portable [PromptJang Agent Skill](https://github.com/PromptJang/promptjang-relay-skill) using the [Agent Skills](https://agentskills.io/home) format:
 
-The same skill supports PromptJang Cloud by detecting the mailbox tools exposed by the configured MCP server. Relay and Cloud keep their actual tool names and claim semantics rather than presenting an imaginary common API.
+```bash
+npx --yes skills add PromptJang/promptjang-relay-skill --skill promptjang -y
+```
+
+A release copy remains in `skills/promptjang`. The skill teaches agents when and how to send, claim, acknowledge, retry, and return mailbox results; it does not start polling or wake agents.
+
+The skill is intentionally scoped to PromptJang Relay and Relay One. Both expose the same five mailbox tools, so the skill does not need product detection or a Cloud compatibility layer.
