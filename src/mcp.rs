@@ -330,6 +330,29 @@ mod tests {
     }
 
     #[test]
+    fn tool_schemas_match_the_agent_mailbox_fixture() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/agent-mailbox-v1.json"))
+                .expect("agent mailbox fixture must be valid JSON");
+        let actual = Value::Array(
+            tool_definitions()
+                .into_iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "inputSchema": tool.input_schema
+                    })
+                })
+                .collect(),
+        );
+        assert_eq!(actual, fixture["tools"]);
+        assert_eq!(
+            fixture["states"],
+            json!(["UNREAD", "CLAIMED", "ACKNOWLEDGED"])
+        );
+    }
+
+    #[test]
     fn string_payload_hashes_the_exact_stored_bytes() {
         let raw = b"line one\nline two";
         assert_eq!(secrets::hash_bytes(raw), secrets::hash_bytes(raw));
