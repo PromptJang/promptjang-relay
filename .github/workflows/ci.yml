@@ -12,6 +12,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -26,6 +42,7 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo test --workspace --locked
+          cargo test --test remote_mcp --locked -- --ignored
           cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Install Node.js

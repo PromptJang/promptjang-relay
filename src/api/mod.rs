@@ -13,6 +13,7 @@ use axum::{Router, middleware};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
+use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -118,22 +119,45 @@ pub fn router(state: AppState, static_dir: String) -> Router {
         .route("/api/events/{id}/replay", post(replay_event))
         .route("/e/{endpoint_id}", post(ingest))
         .layer(middleware::from_fn(deprecated));
-    let mcp_service: StreamableHttpService<crate::mcp::RelayMcp, LocalSessionManager> =
-        StreamableHttpService::new(
-            {
-                let pool = state.pool.clone();
-                move || Ok(crate::mcp::RelayMcp::new(pool.clone()))
-            },
-            Default::default(),
-            StreamableHttpServerConfig::default(),
+    let mcp = if state.config.mcp_enabled {
+        let public_url = &state.config.mcp_public_url;
+        let public_host = public_url.host_str().unwrap_or("localhost").to_string();
+        let public_origin = public_url.origin().ascii_serialization();
+        let session_store = crate::store::mcp_sessions::PostgresMcpSessionStore::new(
+            state.pool.clone(),
+            state.config.mcp_session_ttl_seconds,
         );
-    let mcp =
+        let mut mcp_config = StreamableHttpServerConfig::default()
+            .with_allowed_hosts([
+                public_host,
+                "localhost".into(),
+                "127.0.0.1".into(),
+                "::1".into(),
+            ])
+            .with_allowed_origins([
+                public_origin,
+                "http://localhost".into(),
+                "http://127.0.0.1".into(),
+            ]);
+        mcp_config.session_store = Some(Arc::new(session_store));
+        let mcp_service: StreamableHttpService<crate::mcp::RelayMcp, LocalSessionManager> =
+            StreamableHttpService::new(
+                {
+                    let pool = state.pool.clone();
+                    move || Ok(crate::mcp::RelayMcp::new(pool.clone()))
+                },
+                Default::default(),
+                mcp_config,
+            );
         Router::new()
             .nest_service("/mcp", mcp_service)
             .layer(middleware::from_fn_with_state(
                 state.clone(),
                 require_mcp_api_key,
-            ));
+            ))
+    } else {
+        Router::new()
+    };
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))

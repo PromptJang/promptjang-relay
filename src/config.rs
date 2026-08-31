@@ -21,6 +21,9 @@ pub struct Config {
     pub response_body_bytes: usize,
     pub db_max_connections: u32,
     pub session_ttl_seconds: i64,
+    pub mcp_enabled: bool,
+    pub mcp_public_url: url::Url,
+    pub mcp_session_ttl_seconds: i64,
     pub allow_private_cidrs: Vec<IpNet>,
     pub allow_insecure_http: bool,
     pub allow_weak_password: bool,
@@ -74,6 +77,16 @@ impl Config {
         {
             anyhow::bail!("OTEL_EXPORTER_OTLP_ENDPOINT is required when PJ_OTEL_ENABLED=true");
         }
+        let mcp_enabled = bool_value("PJ_MCP_ENABLED", true);
+        let mcp_public_url = parse_mcp_public_url(
+            read("PJ_MCP_PUBLIC_URL")
+                .as_deref()
+                .unwrap_or("http://localhost:8080/mcp"),
+        )?;
+        let mcp_session_ttl_seconds: i64 = parse("PJ_MCP_SESSION_TTL_SECONDS", "86400")?.parse()?;
+        if mcp_session_ttl_seconds <= 0 {
+            anyhow::bail!("PJ_MCP_SESSION_TTL_SECONDS must be greater than zero");
+        }
         Ok(Self {
             database_url,
             bind: read("PJ_BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
@@ -92,6 +105,9 @@ impl Config {
             response_body_bytes: parse("PJ_RESPONSE_BODY_BYTES", "10240")?.parse()?,
             db_max_connections: parse("PJ_DB_MAX_CONNECTIONS", "20")?.parse()?,
             session_ttl_seconds: parse("PJ_SESSION_TTL_SECONDS", "86400")?.parse()?,
+            mcp_enabled,
+            mcp_public_url,
+            mcp_session_ttl_seconds,
             allow_private_cidrs,
             allow_insecure_http: bool_value("PJ_ALLOW_INSECURE_HTTP", false),
             allow_weak_password: bool_value("PJ_ALLOW_WEAK_PASSWORD", false),
@@ -99,6 +115,33 @@ impl Config {
             otel_enabled,
         })
     }
+}
+
+fn parse_mcp_public_url(value: &str) -> Result<url::Url> {
+    let url = url::Url::parse(value).context("PJ_MCP_PUBLIC_URL must be an absolute URL")?;
+    if !matches!(url.scheme(), "http" | "https") {
+        anyhow::bail!("PJ_MCP_PUBLIC_URL must use http or https");
+    }
+    if url.username() != ""
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/mcp"
+    {
+        anyhow::bail!(
+            "PJ_MCP_PUBLIC_URL must be an origin plus /mcp without credentials, query, or fragment"
+        );
+    }
+    let is_loopback = match url.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    };
+    if url.scheme() == "http" && !is_loopback {
+        anyhow::bail!("PJ_MCP_PUBLIC_URL must use https unless it targets loopback");
+    }
+    Ok(url)
 }
 
 #[cfg(test)]
@@ -141,6 +184,9 @@ mod tests {
         assert_eq!(config.max_payload_bytes, 1_048_576);
         assert_eq!(config.rate_limit_per_minute, 10_000);
         assert!(!config.otel_enabled);
+        assert!(config.mcp_enabled);
+        assert_eq!(config.mcp_public_url.as_str(), "http://localhost:8080/mcp");
+        assert_eq!(config.mcp_session_ttl_seconds, 86_400);
     }
 
     #[test]
@@ -152,6 +198,9 @@ mod tests {
             "PJ_ADMIN_USERNAME" => Some("owner".into()),
             "PJ_ADMIN_PASSWORD" => Some("at-least-twelve".into()),
             "PJ_ENCRYPTION_KEY" => Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
+            "PJ_MCP_ENABLED" => Some("false".into()),
+            "PJ_MCP_PUBLIC_URL" => Some("https://relay.example.com/mcp".into()),
+            "PJ_MCP_SESSION_TTL_SECONDS" => Some("3600".into()),
             _ => None,
         };
 
@@ -162,6 +211,49 @@ mod tests {
         assert_eq!(config.bind, "127.0.0.1:9000");
         assert_eq!(config.admin_username.as_deref(), Some("owner"));
         assert_eq!(config.admin_password.as_deref(), Some("at-least-twelve"));
+        assert!(!config.mcp_enabled);
+        assert_eq!(
+            config.mcp_public_url.as_str(),
+            "https://relay.example.com/mcp"
+        );
+        assert_eq!(config.mcp_session_ttl_seconds, 3_600);
+    }
+
+    #[test]
+    fn remote_mcp_requires_https() {
+        let reader = |key: &str| match key {
+            "DATABASE_URL" => Some("postgres://db/promptjang".into()),
+            "PJ_ENCRYPTION_KEY" => Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
+            "PJ_MCP_PUBLIC_URL" => Some("http://relay.example.com/mcp".into()),
+            _ => None,
+        };
+
+        let error = Config::from_reader(reader)
+            .err()
+            .map(|error| error.to_string());
+
+        assert_eq!(
+            error.as_deref(),
+            Some("PJ_MCP_PUBLIC_URL must use https unless it targets loopback")
+        );
+    }
+
+    #[test]
+    fn mcp_url_rejects_credentials_query_and_wrong_path() {
+        for value in [
+            "https://user@relay.example.com/mcp",
+            "https://relay.example.com/mcp?token=secret",
+            "https://relay.example.com/not-mcp",
+        ] {
+            let reader = |key: &str| match key {
+                "DATABASE_URL" => Some("postgres://db/promptjang".into()),
+                "PJ_ENCRYPTION_KEY" => Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
+                "PJ_MCP_PUBLIC_URL" => Some(value.into()),
+                _ => None,
+            };
+
+            assert!(Config::from_reader(reader).is_err(), "accepted {value}");
+        }
     }
 
     #[test]

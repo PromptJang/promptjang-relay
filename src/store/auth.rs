@@ -23,6 +23,17 @@ fn dummy_password_hash() -> Result<&'static str> {
 }
 
 pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(735014629)")
+        .execute(&mut *tx)
+        .await?;
+    let owner_exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM owners)")
+        .fetch_one(&mut *tx)
+        .await?;
+    if owner_exists {
+        tx.commit().await?;
+        return Ok(());
+    }
     let username = config
         .admin_username
         .as_deref()
@@ -38,26 +49,14 @@ pub async fn bootstrap_owner(pool: &PgPool, config: &Config) -> Result<()> {
     }
     let password_hash =
         hash_password(password).map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    let changed = sqlx::query(
-        "INSERT INTO owners (id,username,password_hash) VALUES ($1,$2,$3)
-         ON CONFLICT (username) DO UPDATE SET password_hash=$3
-         WHERE owners.password_hash IS DISTINCT FROM $3
-         RETURNING id",
-    )
-    .bind(Uuid::new_v4())
-    .bind(&username)
-    .bind(&password_hash)
-    .fetch_optional(pool)
-    .await?;
-    if changed.is_some() {
-        sqlx::query(
-            "DELETE FROM sessions WHERE owner_id=(SELECT id FROM owners WHERE username=$1)",
-        )
+    sqlx::query("INSERT INTO owners (id,username,password_hash) VALUES ($1,$2,$3)")
+        .bind(Uuid::new_v4())
         .bind(&username)
-        .execute(pool)
+        .bind(&password_hash)
+        .execute(&mut *tx)
         .await?;
-        tracing::info!(username, "set the PromptJang Relay owner credentials");
-    }
+    tx.commit().await?;
+    tracing::info!(username, "created the PromptJang Relay owner");
     Ok(())
 }
 
@@ -154,6 +153,9 @@ async fn require_scoped_api_key(
     .fetch_optional(pool)
     .await?
     .context("invalid API key")?;
+    if destination_id.is_none() && !row.1 {
+        bail!("unrestricted API key required");
+    }
     if let Some(destination_id) = destination_id.filter(|_| !row.1) {
         let allowed = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM api_key_destinations WHERE api_key_id=$1 AND destination_id=$2)")
             .bind(row.0).bind(destination_id).fetch_one(pool).await?;

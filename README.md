@@ -72,7 +72,7 @@ codex mcp add promptjang-relay \
   --bearer-token-env-var PJ_RELAY_API_KEY
 ```
 
-No `DATABASE_URL` is given to the agent. The older database-connected stdio companion remains available for compatibility, but it is no longer the recommended setup.
+No `DATABASE_URL` is given to the agent. PostgreSQL remains an operator-only Relay dependency.
 
 ## Delivery contract
 
