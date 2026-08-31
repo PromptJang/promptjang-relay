@@ -1,6 +1,6 @@
 # PromptJang Relay
 
-[![Build](https://github.com/PromptJang/promptjang-relay/actions/workflows/release.yml/badge.svg)](https://github.com/PromptJang/promptjang-relay/actions/workflows/release.yml)
+[![CI](https://github.com/PromptJang/promptjang-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/PromptJang/promptjang-relay/actions/workflows/ci.yml)
 
 **Durable delivery for webhooks and agents, on your PostgreSQL.**
 
