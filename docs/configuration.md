@@ -4,8 +4,8 @@
 |---|---:|---|
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `PJ_ENCRYPTION_KEY` | required | Base64-encoded 32-byte AES-GCM key for signing secrets |
-| `PJ_ADMIN_USERNAME` | `admin` | Owner username (re-applied at startup when changed) |
-| `PJ_ADMIN_PASSWORD` | required | Owner password; ≥ 12 chars (≥ 1 with the weak flag). Changing it resets the owner and revokes sessions |
+| `PJ_ADMIN_USERNAME` | `admin` | Owner username consumed only when the first owner is created |
+| `PJ_ADMIN_PASSWORD` | required on first startup | Owner bootstrap password; ≥ 12 chars (≥ 1 with the weak flag). Ignored after an owner exists |
 | `PJ_ALLOW_WEAK_PASSWORD` | `false` | Dev only: allow short passwords for local `admin/admin` |
 | `PJ_MAX_PAYLOAD_BYTES` | `1048576` | Accepted body maximum |
 | `PJ_RATE_LIMIT_PER_DESTINATION_PER_MINUTE` | `10000` | Per-destination safeguard; `0` disables |

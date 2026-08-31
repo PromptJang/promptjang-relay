@@ -27,7 +27,7 @@ src/domain/    pure policy: validation, secrets, delivery rules, errors
 src/store/     PostgreSQL persistence (auth, destinations, events, keys)
 src/api/       axum edge: state, error mapping, per-resource handlers
 src/worker/    delivery run loop + policy
-mcp/           MCP stdio server for the agent mailbox (reuses the store layer)
+src/mcp.rs     Remote Streamable HTTP MCP tools for the agent mailbox
 migrations/    SQLx migrations (auto-applied at startup)
 docs/          operator documentation
 web/           Vue operational UI

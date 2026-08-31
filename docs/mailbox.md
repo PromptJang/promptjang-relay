@@ -65,7 +65,6 @@ Agents name the mailbox explicitly on each push, claim, acknowledgement, or nack
 
 Browser-originated requests are accepted only when `Origin` matches `Host`. Non-browser clients normally omit `Origin`. Bearer tokens must be sent through the `Authorization` header, never a URL query parameter.
 
-The `promptjang-relay-mcp` stdio binary remains a deprecated compatibility path for existing installations. It connects directly to PostgreSQL and should not be used for new setups.
 
 ## Agent Skill
 

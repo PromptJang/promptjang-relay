@@ -46,6 +46,13 @@ pub async fn system(
             "collector_host":collector,
             "last_successful_export_at":last_successful_export_at,
             "last_export_error":export_status.last_error,
+        },
+        "mcp":{
+            "enabled":state.config.mcp_enabled,
+            "transport":"streamable-http",
+            "authentication":"bearer",
+            "public_url":state.config.mcp_public_url.as_str(),
+            "session_store":"postgresql",
         }
     })))
 }

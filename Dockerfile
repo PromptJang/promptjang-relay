@@ -10,8 +10,6 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
 COPY docs ./docs
-COPY mcp/Cargo.toml ./mcp/Cargo.toml
-COPY mcp/src ./mcp/src
 COPY src ./src
 RUN cargo build --release --bin promptjang-relay
 

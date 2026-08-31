@@ -68,7 +68,6 @@ URL: http://localhost:8080/mcp
 Authorization: Bearer pj_relay_YOUR_KEY
 ```
 
-The old `promptjang-relay-mcp` stdio binary and its direct `DATABASE_URL` mode remain temporarily for compatibility. Do not use it for new installations.
 
 ## Where next
 
