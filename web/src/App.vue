@@ -9,6 +9,7 @@ import { useRelayData } from './composables/useRelayData'
 import DestinationsView from './views/DestinationsView.vue'
 import EventsView from './views/EventsView.vue'
 import KeysView from './views/KeysView.vue'
+import IntegrationsView from './views/IntegrationsView.vue'
 import MailboxesView from './views/MailboxesView.vue'
 import OverviewView from './views/OverviewView.vue'
 import SystemView from './views/SystemView.vue'
@@ -42,6 +43,7 @@ onMounted(() => { if (token.value) void relay.refresh() })
     <MailboxesView v-else-if="view==='mailboxes'" :mailboxes="relay.mailboxes.value" :messages="relay.mailboxMessages.value" :selected="relay.selectedMailbox.value" @inspect="relay.inspectMailbox" @remove="relay.deleteMailbox" />
     <EventsView v-else-if="view==='events'" :events="relay.events.value" :selected="relay.selectedEvent.value" @inspect="relay.inspectEvent" @replay="relay.replayEvent" @close="relay.clearSelectedEvent" />
     <KeysView v-else-if="view==='keys'" :keys="relay.keys.value" :destinations="relay.destinations.value" :reveal-key="relay.revealKey" @create="relay.createKey" @revoke="relay.revokeKey" />
+    <IntegrationsView v-else-if="view==='integrations'" :keys="relay.keys.value" :system="relay.system.value" :reveal-key="relay.revealKey" @navigate="view=$event" />
     <SystemView v-else :system="relay.system.value" />
   </AppShell>
 </template>

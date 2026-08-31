@@ -1,4 +1,4 @@
-export type ViewName = 'overview' | 'destinations' | 'mailboxes' | 'events' | 'keys' | 'system'
+export type ViewName = 'overview' | 'destinations' | 'mailboxes' | 'events' | 'keys' | 'integrations' | 'system'
 
 export interface RevealedSecret {
   value: string
@@ -92,5 +92,12 @@ export interface SystemStatus {
     collector_host?: string
     last_successful_export_at?: string
     last_export_error?: string
+  }
+  mcp: {
+    enabled: boolean
+    transport: 'streamable-http'
+    authentication: 'bearer'
+    public_url: string
+    session_store: 'postgresql'
   }
 }

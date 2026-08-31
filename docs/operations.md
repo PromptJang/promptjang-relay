@@ -21,7 +21,9 @@ Relay depends only on `DATABASE_URL`; the Compose database is an example. RDS, C
 
 ## Scale out
 
-Multiple Relay instances can share PostgreSQL. Queue claims use `FOR UPDATE SKIP LOCKED`. Delivery is at-least-once: a receiver may see the same event ID twice if it accepted a request before Relay recorded success.
+Multiple Relay instances can share PostgreSQL. Queue claims use `FOR UPDATE SKIP LOCKED`, and MCP initialization sessions recover through PostgreSQL when a later request reaches another instance. Sticky sessions are not required. Delivery is at-least-once: a receiver may see the same event ID twice if it accepted a request before Relay recorded success.
+
+For remote MCP, configure `PJ_MCP_PUBLIC_URL` and route HTTPS traffic through a reverse proxy that preserves `Host` and `Authorization`, disables response buffering, and permits long-lived streaming responses. See [Remote MCP](remote-mcp.md).
 
 ## Monitoring
 
@@ -36,3 +38,5 @@ Monitor queue depth, queue delay, delivery duration and outcome, retries, expire
 | Events stay queued | System worker state, database connections, destination status, logs. |
 | Repeated retries | Event timeline and response evidence, DNS, CIDR allowlist, custom CA, receiver verification. |
 | Telemetry export fails | Collector reachability and OTLP headers — delivery and readiness are unaffected. |
+| Remote MCP returns `403` | `PJ_MCP_PUBLIC_URL`, forwarded `Host`, TLS hostname, or browser `Origin`. |
+| Remote MCP returns `401` | Use an active unrestricted API key in the bearer header. |

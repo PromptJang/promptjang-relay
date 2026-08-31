@@ -1,16 +1,20 @@
-# PromptJang Relay v0.4.0
+# PromptJang Relay v0.5.0
 
-Relay v0.4 makes the agent mailbox a first-class operational workflow while keeping reliable webhook delivery intact.
+Relay v0.5 makes its agent mailbox a production-ready remote MCP service while keeping webhook delivery unchanged.
 
 ## Highlights
 
-- Mailbox UI for inspecting messages and lifecycle state.
-- Hardened mailbox idempotency, claim leases, acknowledgement, and requeue behavior.
-- MCP companion fixes for accurate idempotent message status.
-- Portable PromptJang Agent Skill for Relay and Cloud mailbox tools.
-- Clearer README and built-in documentation for technical and non-technical readers.
-- Copy controls for one-time API-key and signing-secret values.
+- Authenticated Streamable HTTP MCP for public HTTPS and private HTTPS/VPN deployments.
+- PostgreSQL-backed MCP session recovery across Relay instances without sticky sessions.
+- An Integrations screen with configured Codex, Claude Code, OpenCode, and Qwen recipes.
+- Strict unrestricted-key, host, origin, and public-URL validation.
+- One-time owner bootstrap that no longer revokes sessions when another instance starts.
+- Pull-request CI and remote MCP integration coverage against PostgreSQL.
 
 Relay still does not run or wake agents. The user, CLI, or scheduler owns the agent loop.
 
-Webhook signing remains Standard Webhooks v1. Review [the v0.2 to v0.3 migration guide](docs/migration-v02-v03.md) only when upgrading from the old signing contract.
+## Upgrade note
+
+The deprecated `promptjang-relay-mcp` database-connected stdio companion has been removed. Point MCP clients at `https://your-relay.example/mcp` with an unrestricted Relay API key. The Relay server remains the only component that receives `DATABASE_URL`.
+
+Webhook signing remains Standard Webhooks v1, and the mailbox API/tool contract is unchanged.

@@ -22,6 +22,11 @@ pub const DOCS: &[(&str, &str, &str)] = &[
         include_str!("../../../docs/mailbox.md"),
     ),
     (
+        "remote-mcp",
+        "Remote MCP",
+        include_str!("../../../docs/remote-mcp.md"),
+    ),
+    (
         "configuration",
         "Configuration",
         include_str!("../../../docs/configuration.md"),

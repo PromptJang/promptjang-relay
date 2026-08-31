@@ -18,6 +18,10 @@ Your app ──event──▶ Relay + PostgreSQL ──signed delivery + retries
 Agent mailbox
 
 Agent or app ──message──▶ Relay mailbox ◀──claim / acknowledge──▶ CLI agent
+
+Remote MCP
+
+CLI agent ──HTTPS + bearer key──▶ Relay /mcp ──▶ PostgreSQL mailbox
 ```
 
 | Need | Use |
@@ -93,6 +97,7 @@ There are no destination or API-key count caps. Payload, rate, retention, worker
 - [Quick start](docs/quickstart.md)
 - [API, signing, and idempotency](docs/api.md)
 - [Agent mailbox and MCP](docs/mailbox.md)
+- [Remote MCP deployment](docs/remote-mcp.md)
 - [PromptJang Agent Skill](https://github.com/PromptJang/promptjang-relay-skill) (Relay and Relay One only; a release copy also lives in `skills/promptjang`)
 - [Configuration](docs/configuration.md)
 - [OpenTelemetry](docs/observability.md)
