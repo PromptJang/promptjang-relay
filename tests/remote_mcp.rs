@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use promptjang_relay::{api, config::Config, store};
+use promptjang_relay::{api, config::Config, domain::secrets, store};
 use tower::ServiceExt;
 
 fn config(database_url: &str) -> Arc<Config> {
@@ -50,6 +50,30 @@ async fn mcp_auth_and_session_restore_across_instances(pool: sqlx::PgPool) {
     .oneshot(missing)
     .await
     .expect("missing-key response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let (revoked_id, revoked_key) =
+        store::keys::create(&pool, &config.encryption_key, "revoked MCP".into(), vec![])
+            .await
+            .expect("create key to revoke");
+    store::keys::delete(&pool, revoked_id)
+        .await
+        .expect("revoke key");
+    let revoked = Request::get("/mcp")
+        .header(header::HOST, "localhost:8080")
+        .header(header::AUTHORIZATION, format!("Bearer {revoked_key}"))
+        .body(Body::empty())
+        .expect("valid request");
+    let response = api::router(
+        api::AppState {
+            pool: pool.clone(),
+            config: config.clone(),
+        },
+        "web/dist".into(),
+    )
+    .oneshot(revoked)
+    .await
+    .expect("revoked-key response");
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let (destination_id, _) = store::endpoints::create(
@@ -142,4 +166,45 @@ async fn mcp_auth_and_session_restore_across_instances(pool: sqlx::PgPool) {
     ] {
         assert!(body.contains(tool), "missing {tool} in {body}");
     }
+
+    let payload_raw = br#"{"task":"survive session cleanup"}"#.to_vec();
+    let message = store::mail::push(
+        &pool,
+        "session-cleanup",
+        store::mail::IncomingMessage {
+            payload_sha256: secrets::hash_bytes(&payload_raw),
+            payload_raw,
+            payload: Some(serde_json::json!({"task":"survive session cleanup"})),
+            content_type: "application/json".into(),
+            idempotency_key_hash: None,
+            traceparent: None,
+            tracestate: None,
+        },
+    )
+    .await
+    .expect("store mailbox message");
+    let message_id = match message {
+        store::mail::MailPushOutcome::Created { id } => id,
+        store::mail::MailPushOutcome::IdempotentReplay { .. } => {
+            panic!("new mailbox message must not be an idempotent replay")
+        }
+    };
+    sqlx::query("UPDATE mcp_sessions SET expires_at=now()-interval '1 second' WHERE session_id=$1")
+        .bind(&session_id)
+        .execute(&pool)
+        .await
+        .expect("expire session");
+    assert_eq!(
+        store::mcp_sessions::cleanup(&pool)
+            .await
+            .expect("clean expired sessions"),
+        1
+    );
+    let message_survived: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mailbox_messages WHERE id=$1)")
+            .bind(message_id)
+            .fetch_one(&pool)
+            .await
+            .expect("query mailbox message");
+    assert!(message_survived);
 }
