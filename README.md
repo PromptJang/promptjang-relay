@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="hero-logo.svg" alt="PromptJang" width="160">
+</div>
+
 # PromptJang Relay
 
 [![CI](https://github.com/PromptJang/promptjang-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/PromptJang/promptjang-relay/actions/workflows/ci.yml)
