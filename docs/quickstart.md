@@ -59,7 +59,7 @@ codex mcp add promptjang-relay \
   --bearer-token-env-var PJ_RELAY_API_KEY
 ```
 
-The client can call `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list`. Every mailbox tool takes an explicit `mailbox` name. Relay owns PostgreSQL; the client receives only the MCP URL and API key.
+The client can call `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list`. Every mailbox tool takes an explicit `mailbox` name. Relay owns PostgreSQL; the client receives only the MCP URL and API key. Use the dashboard **Integrations** screen or [Remote MCP](remote-mcp.md) for remote clients.
 
 For another Streamable HTTP MCP client, configure:
 
@@ -72,5 +72,6 @@ Authorization: Bearer pj_relay_YOUR_KEY
 ## Where next
 
 - [Configuration reference](configuration.md) — every environment variable
+- [Remote MCP](remote-mcp.md) — HTTPS, reverse proxies, and CLI setup
 - [Operations](operations.md) — backups, upgrades, scaling
 - [Security](security.md) — private networks, secret handling

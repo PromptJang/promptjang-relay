@@ -17,9 +17,14 @@
 | `PJ_RESPONSE_BODY_BYTES` | `10240` | Stored response evidence maximum |
 | `PJ_DB_MAX_CONNECTIONS` | `20` | PostgreSQL pool maximum |
 | `PJ_SESSION_TTL_SECONDS` | `86400` | Owner-session lifetime |
+| `PJ_MCP_ENABLED` | `true` | Mount the authenticated Streamable HTTP MCP endpoint |
+| `PJ_MCP_PUBLIC_URL` | `http://localhost:8080/mcp` | External MCP URL and accepted host/origin; remote URLs must use HTTPS |
+| `PJ_MCP_SESSION_TTL_SECONDS` | `86400` | PostgreSQL-backed MCP initialization-session lifetime |
 | `PJ_DESTINATION_ALLOW_PRIVATE_CIDRS` | empty | Comma-separated private CIDR allowlist |
 | `PJ_ALLOW_INSECURE_HTTP` | `false` | Allow HTTP only to allowlisted private addresses |
 | `PJ_EXTRA_CA_CERT_PATH` | empty | PEM CA bundle for private TLS |
 | `PJ_OTEL_ENABLED` | `false` | OpenTelemetry master gate — see [observability](observability.md) |
 
 Deprecated: `PJ_ADMIN_EMAIL` is still read as a fallback for `PJ_ADMIN_USERNAME`.
+
+See [Remote MCP](remote-mcp.md) for reverse-proxy and private-network configuration.

@@ -52,7 +52,7 @@ curl -X POST "http://localhost:8080/v1/mail/agent-tasks/messages/$ID/ack" \
 
 ## MCP endpoint
 
-Relay serves Streamable HTTP MCP at `/mcp`. It exposes `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list` and requires a Relay API key on every request.
+Relay serves Streamable HTTP MCP at `/mcp`. It exposes `mail_push`, `mail_claim`, `mail_ack`, `mail_nack`, and `mail_list` and requires an unrestricted Relay API key on every request.
 
 ```bash
 export PJ_RELAY_API_KEY='pj_relay_YOUR_KEY'
@@ -64,6 +64,8 @@ codex mcp add promptjang-relay \
 Agents name the mailbox explicitly on each push, claim, acknowledgement, or nack. This makes one MCP connection usable for several agent inboxes without leaking `DATABASE_URL` outside Relay.
 
 Browser-originated requests are accepted only when `Origin` matches `Host`. Non-browser clients normally omit `Origin`. Bearer tokens must be sent through the `Authorization` header, never a URL query parameter.
+
+See [Remote MCP](remote-mcp.md) before exposing Relay through a private network, VPN, or public hostname.
 
 
 ## Agent Skill
