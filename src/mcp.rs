@@ -50,6 +50,7 @@ impl RelayMcp {
             .get("payload")
             .cloned()
             .ok_or_else(|| "payload is required".to_string())?;
+        crate::domain::envelope::validate(&payload).map_err(|error| error.to_string())?;
         let (payload_raw, parsed, content_type) = match &payload {
             Value::String(text) => (text.as_bytes().to_vec(), None, "text/plain".to_string()),
             value => (
@@ -193,10 +194,23 @@ impl ServerHandler for RelayMcp {
 fn tool(
     name: &'static str,
     description: &'static str,
-    input_schema: Value,
+    mut input_schema: Value,
     annotations: ToolAnnotations,
 ) -> Tool {
-    Tool::new(name, description, model::object(input_schema)).annotate(annotations)
+    if name == "mail_push" {
+        let envelope: Value = serde_json::from_str(include_str!(
+            "../skills/promptjang/references/agent-message-v1.schema.json"
+        ))
+        .unwrap_or_default();
+        input_schema["$defs"] = json!({"agent_message":envelope});
+        input_schema["properties"]["payload"]["anyOf"] =
+            json!([{"$ref":"#/$defs/agent_message"},{}]);
+    }
+    let outputs: Value = serde_json::from_str(include_str!("../tests/fixtures/mcp-output-v1.json"))
+        .unwrap_or_default();
+    Tool::new(name, description, model::object(input_schema))
+        .annotate(annotations)
+        .with_raw_output_schema(std::sync::Arc::new(model::object(outputs[name].clone())))
 }
 
 pub fn tool_definitions() -> Vec<Tool> {
@@ -214,7 +228,7 @@ pub fn tool_definitions() -> Vec<Tool> {
                 "type": "object",
                 "properties": {
                     "mailbox": mailbox,
-                    "payload": { "description": "JSON value or text message" },
+                    "payload": { "description": "JSON value or text message; optional structured task/result uses schema: promptjang.agent-message.v1" },
                     "idempotency_key": { "type": "string", "description": "Optional producer deduplication key" }
                 },
                 "required": ["mailbox", "payload"]

@@ -27,6 +27,11 @@ pub const DOCS: &[(&str, &str, &str)] = &[
         include_str!("../../../docs/remote-mcp.md"),
     ),
     (
+        "agent-envelope",
+        "Structured agent messages",
+        include_str!("../../../docs/agent-envelope.md"),
+    ),
+    (
         "configuration",
         "Configuration",
         include_str!("../../../docs/configuration.md"),

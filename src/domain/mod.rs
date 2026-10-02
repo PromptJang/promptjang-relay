@@ -5,3 +5,4 @@ pub mod secrets;
 pub mod validation;
 
 pub use error::{DomainError, ErrorKind};
+pub mod envelope;

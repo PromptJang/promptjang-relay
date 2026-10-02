@@ -89,6 +89,9 @@ pub async fn push(
         tracestate = tracestate.or_else(|| generated.get("tracestate").cloned());
     }
     let payload = serde_json::from_slice::<serde_json::Value>(&body).ok();
+    if let Some(value) = &payload {
+        crate::domain::envelope::validate(value)?;
+    }
     let outcome = async {
         mail::push(
             &state.pool,
